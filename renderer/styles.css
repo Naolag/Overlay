@@ -1,0 +1,141 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+#panel {
+  background: rgba(20, 20, 24, 0.94);
+  color: #e8e8e8;
+  border-radius: 12px;
+  padding: 16px;
+  height: calc(100vh - 32px);
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+}
+
+#title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+#status {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.status-ok {
+  background: rgba(40, 160, 90, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.status-bad {
+  background: rgba(200, 50, 50, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+#hint {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+#chat-log {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 2px;
+  margin-bottom: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.chat-entry {
+  margin-bottom: 12px;
+}
+
+.chat-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.chat-role.role-you {
+  color: #7dd3fc;
+}
+
+.chat-role.role-gemini {
+  color: #c4b5fd;
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-error {
+  color: #f87171;
+}
+
+#chat-form {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+#chat-input {
+  flex: 1;
+  resize: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #e8e8e8;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px;
+  height: 40px;
+}
+
+#chat-input:focus {
+  outline: none;
+  border-color: rgba(196, 181, 253, 0.5);
+}
+
+#chat-send {
+  background: #6d28d9;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#chat-send:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+#chat-send:hover:not(:disabled) {
+  background: #7c3aed;
+}

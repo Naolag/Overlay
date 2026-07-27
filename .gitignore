@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Electron build output
+dist/
+out/
+build/
+release/
+
+# Environment / secrets — critical for this project, never commit API keys
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local audit log / tribal-knowledge data (Day 7+) — this is sensitive
+# incident data and must never be committed
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Test/coverage output
+coverage/
+
+# Package manager files (keep package-lock.json committed, ignore others)
+yarn.lock
+pnpm-lock.yaml

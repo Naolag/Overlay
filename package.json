@@ -1,0 +1,16 @@
+{
+  "name": "oncall-overlay-agent",
+  "version": "0.2.0",
+  "description": "Day 2: capture-excluded private overlay with Gemini Flash-backed chat",
+  "main": "main/index.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "koffi": "^2.9.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

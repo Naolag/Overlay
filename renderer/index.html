@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Overlay</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="panel">
+    <div id="title">🔒 On-Call Overlay — Day 2</div>
+    <div id="status" class="status-bad">Checking capture-exclusion status…</div>
+    <div id="hint">
+      Ctrl+Shift+Space — show/hide &nbsp;|&nbsp; Ctrl+Shift+Esc — panic hide
+    </div>
+
+    <div id="chat-log"></div>
+
+    <form id="chat-form">
+      <textarea id="chat-input" placeholder="Ask a quick triage question…" autofocus></textarea>
+      <button id="chat-send" type="submit">Send</button>
+    </form>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
