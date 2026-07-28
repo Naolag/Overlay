@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
 
 const { excludeFromCapture } = require('./native/displayAffinity');
@@ -36,6 +36,20 @@ function createOverlayWindow() {
   overlayWindow.once('ready-to-show', () => {
     exclusionApplied = excludeFromCapture(overlayWindow);
     console.log('[capture-exclusion] applied:', exclusionApplied);
+
+    // FAIL CLOSED: never show the window on a failed exclusion. A status
+    // line you might not glance at is not a safety mechanism — refusing
+    // to render at all is. This is deliberately loud and blocking.
+    if (!exclusionApplied) {
+      dialog.showErrorBox(
+        'Capture exclusion failed',
+        'SetWindowDisplayAffinity did not succeed. The overlay will stay hidden ' +
+          'until this is fixed — do not attempt to use it on a real call.\n\n' +
+          'Check the console log for details, and see README.md troubleshooting section.'
+      );
+      return; // window stays hidden
+    }
+
     overlayWindow.show();
   });
 
