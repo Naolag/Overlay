@@ -77,3 +77,50 @@ chatInput.addEventListener('keydown', (e) => {
     chatForm.requestSubmit();
   }
 });
+
+// --- Self-test loop support (Day 5) ---
+
+async function setWatermark() {
+  try {
+    const color = await window.overlayAPI.getWatermarkColor();
+    if (color) {
+      document.getElementById('watermark').style.backgroundColor =
+        `rgb(${color.r}, ${color.g}, ${color.b})`;
+    }
+  } catch (err) {
+    console.error('Could not set watermark color:', err);
+  }
+}
+setWatermark();
+
+function clearChatLog() {
+  chatLog.innerHTML = '';
+}
+
+function showWarningBanner(timestamp) {
+  const banner = document.getElementById('warning-banner');
+  banner.innerHTML =
+    `⚠ Exposure detected at ${timestamp}. Content was cleared automatically.<br>` +
+    `Do not resume use until you've investigated (see TESTING.md).<br>` +
+    `<button id="ack-exposure">I've investigated — resume</button>`;
+  banner.style.display = 'block';
+
+  document.getElementById('ack-exposure').addEventListener('click', async () => {
+    await window.overlayAPI.resetSelfTest();
+    banner.style.display = 'none';
+  });
+}
+
+// Check on load whether we're reopening after a past exposure event
+window.overlayAPI.getLastExposureEvent().then((event) => {
+  if (event) showWarningBanner(event.timestamp);
+});
+
+window.overlayAPI.onExposureDetected(({ timestamp }) => {
+  clearChatLog();
+  showWarningBanner(timestamp);
+});
+
+window.overlayAPI.onClearContent(() => {
+  clearChatLog();
+});

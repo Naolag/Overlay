@@ -6,7 +6,7 @@ const geminiClient = require('../services/geminiClient');
  * As services/ grows (audit log, notes store), their IPC surface gets
  * wired up here rather than scattered across files.
  */
-function registerIpcHandlers({ getExclusionApplied }) {
+function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
 
   ipcMain.handle('gemini-query', async (event, prompt) => {
@@ -17,6 +17,13 @@ function registerIpcHandlers({ getExclusionApplied }) {
       console.error('[gemini-query] failed:', err);
       return { ok: false, error: err.message || 'Unknown error' };
     }
+  });
+
+  ipcMain.handle('get-watermark-color', () => getWatermarkColor());
+  ipcMain.handle('get-last-exposure-event', () => getLastExposureEvent());
+  ipcMain.handle('reset-self-test', () => {
+    resetSelfTest();
+    return true;
   });
 }
 

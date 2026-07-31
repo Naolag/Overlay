@@ -81,6 +81,7 @@ function excludeFromCapture(browserWindow) {
     console.log('[displayAffinity] applying exclusion to hwnd:', hwndValue.toString(16));
 
     const ok = SetWindowDisplayAffinity(hwndValue, WDA_EXCLUDEFROMCAPTURE);
+      
     if (!ok) {
       console.error(
         '[displayAffinity] SetWindowDisplayAffinity returned false — NOT protected. ' +

@@ -6,9 +6,16 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Solid, opaque, fixed-position watermark used by the self-test loop.
+       Position MUST match WATERMARK_OFFSET in main/captureSelfTest.js exactly.
+       Deliberately outside #panel so it isn't blended with the panel's
+       semi-transparent background — needs an exact, unblended color. -->
+  <div id="watermark"></div>
+
   <div id="panel">
-    <div id="title">🔒 On-Call Overlay — Day 2</div>
+    <div id="title">🔒 On-Call Overlay — Day 5</div>
     <div id="status" class="status-bad">Checking capture-exclusion status…</div>
+    <div id="warning-banner" style="display: none;"></div>
     <div id="hint">
       Ctrl+Shift+Space — show/hide &nbsp;|&nbsp; Ctrl+Shift+Esc — panic hide
     </div>

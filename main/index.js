@@ -3,12 +3,23 @@ require('dotenv').config();
 const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
 
-const { excludeFromCapture } = require('./native/displayAffinity');
+const { excludeFromCapture, checkAffinity } = require('./native/displayAffinity');
 const { registerHotkeys, unregisterHotkeys } = require('./hotkeys');
 const { registerIpcHandlers } = require('./ipcHandlers');
+const { CaptureSelfTest } = require('./captureSelfTest');
 
 let overlayWindow = null;
 let exclusionApplied = false;
+let selfTest = null;
+let lastExposureEvent = null;
+
+function handleExposureDetected({ timestamp }) {
+  lastExposureEvent = { timestamp };
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('exposure-detected', { timestamp });
+    overlayWindow.hide();
+  }
+}
 
 function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
@@ -51,6 +62,23 @@ function createOverlayWindow() {
     }
 
     overlayWindow.show();
+
+    // DIAGNOSTIC: log Windows' own reported affinity value every 5s so you
+    // can watch the console live while testing against Zoom/Teams/etc and
+    // see if it silently reverts. 17 = WDA_EXCLUDEFROMCAPTURE (expected),
+    // 1 = WDA_MONITOR (fallback, older/weaker), 0 = WDA_NONE (not excluded).
+    setInterval(() => {
+      const affinity = checkAffinity(overlayWindow);
+      console.log('[diagnostic] current OS-reported affinity:', affinity);
+    }, 5000);
+
+    // Day 5: continuous self-test — independently verifies via a watermark
+    // capture check, not just trusting the affinity flag stayed set.
+    selfTest = new CaptureSelfTest({
+      getOverlayWindow: () => overlayWindow,
+      onExposureDetected: handleExposureDetected,
+    });
+    selfTest.start();
   });
 
   overlayWindow.on('closed', () => {
@@ -62,11 +90,19 @@ app.whenReady().then(() => {
   createOverlayWindow();
 
   registerHotkeys({ getOverlayWindow: () => overlayWindow });
-  registerIpcHandlers({ getExclusionApplied: () => exclusionApplied });
+  registerIpcHandlers({
+    getExclusionApplied: () => exclusionApplied,
+    getWatermarkColor: () => (selfTest ? selfTest.getWatermarkColor() : null),
+    getLastExposureEvent: () => lastExposureEvent,
+    resetSelfTest: () => {
+      if (selfTest) selfTest.reset();
+    },
+  });
 });
 
 app.on('will-quit', () => {
   unregisterHotkeys();
+  if (selfTest) selfTest.stop();
 });
 
 app.on('window-all-closed', () => {
