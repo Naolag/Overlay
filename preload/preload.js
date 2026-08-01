@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld('overlayAPI', {
     ipcRenderer.invoke('gemini-voice-query', { base64Audio, mimeType }),
   clearConversation: () => ipcRenderer.invoke('clear-conversation'),
 
+  getDesktopSourceId: () => ipcRenderer.invoke('get-desktop-source-id'),
+  summarizeRecording: (base64Audio, mimeType, label) =>
+    ipcRenderer.invoke('gemini-summarize-recording', { base64Audio, mimeType, label }),
+  getAllLessons: () => ipcRenderer.invoke('get-all-lessons'),
+
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
   resetSelfTest: () => ipcRenderer.invoke('reset-self-test'),

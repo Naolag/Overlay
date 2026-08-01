@@ -31,15 +31,24 @@ function getApiKey() {
  * @param {Array} args.history - prior turns: [{role:'user'|'model', parts:[...]}]
  * @param {Array} args.parts - parts for the NEW user turn, e.g. [{text}], or
  *   [{text}, {inline_data:{mime_type,data}}] for image/audio input
+ * @param {string} [args.systemInstruction] - persistent context/persona,
+ *   applied via Gemini's system_instruction field (not stuffed into the
+ *   user turn) — the correct mechanism for "always interpret this as X"
+ *   framing, rather than repeating disambiguating text in every prompt.
  * @returns {Promise<{text: string, history: Array}>} updated history includes
  *   this turn and the model's reply — pass it back in on the next call
  */
-async function query({ history = [], parts }) {
+async function query({ history = [], parts, systemInstruction }) {
   const apiKey = getApiKey();
   const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
   const url = `${ENDPOINT_BASE}/${model}:generateContent`;
 
   const contents = [...history, { role: 'user', parts }];
+
+  const body = { contents };
+  if (systemInstruction) {
+    body.system_instruction = { parts: [{ text: systemInstruction }] };
+  }
 
   let response;
   try {
@@ -49,7 +58,7 @@ async function query({ history = [], parts }) {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({ contents }),
+      body: JSON.stringify(body),
     });
   } catch (networkErr) {
     throw new GeminiClientError('Network error reaching Gemini API — check your connection.', networkErr);
