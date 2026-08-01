@@ -13,11 +13,12 @@
   <div id="watermark"></div>
 
   <div id="panel">
-    <div id="title">🔒 On-Call Overlay — Day 5</div>
+    <div id="title">🔒 On-Call Overlay — Day 5+</div>
     <div id="status" class="status-bad">Checking capture-exclusion status…</div>
     <div id="warning-banner" style="display: none;"></div>
     <div id="hint">
-      Ctrl+Shift+Space — show/hide &nbsp;|&nbsp; Ctrl+Shift+Esc — panic hide
+      Ctrl+Shift+Space — show/hide &nbsp;|&nbsp; Ctrl+Shift+Esc — panic hide<br/>
+      Ctrl+Shift+R — read screen &nbsp;|&nbsp; Ctrl+Shift+V — voice
     </div>
 
     <div id="chat-log"></div>
@@ -26,6 +27,11 @@
       <textarea id="chat-input" placeholder="Ask a quick triage question…" autofocus></textarea>
       <button id="chat-send" type="submit">Send</button>
     </form>
+    <div id="action-row">
+      <button id="read-screen-btn" type="button">📷 Read Screen</button>
+      <button id="voice-btn" type="button">🎤 Talk</button>
+      <button id="clear-btn" type="button" title="Clear conversation history">🗑 Clear</button>
+    </div>
   </div>
 
   <script src="renderer.js"></script>

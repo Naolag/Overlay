@@ -173,3 +173,37 @@ html, body {
 #chat-send:hover:not(:disabled) {
   background: #7c3aed;
 }
+
+#action-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+#action-row button {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8e8e8;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#action-row button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+#action-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#voice-btn.recording {
+  background: rgba(220, 38, 38, 0.35);
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fca5a5;
+}

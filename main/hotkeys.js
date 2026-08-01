@@ -1,14 +1,16 @@
 const { globalShortcut } = require('electron');
 
 /**
- * Registers the two global hotkeys the whole project depends on:
+ * Registers global hotkeys.
  *  - toggle: summon/dismiss the overlay
- *  - panicHide: force-hide immediately, no automation in between.
+ *  - panicHide: force-hide immediately, no automation in between
+ *  - readScreen: capture the screen and send it to Gemini
+ *  - toggleVoice: start/stop a voice recording to send to Gemini
  *
  * panicHide is deliberately the dumbest, most direct code path in the app —
  * it should keep working even if other logic (self-test loop, etc.) breaks.
  */
-function registerHotkeys({ getOverlayWindow }) {
+function registerHotkeys({ getOverlayWindow, onReadScreen, onToggleVoice }) {
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
     const win = getOverlayWindow();
     if (!win) return;
@@ -27,6 +29,14 @@ function registerHotkeys({ getOverlayWindow }) {
       win.hide();
       console.log('[panic-hide] overlay hidden manually, content cleared');
     }
+  });
+
+  globalShortcut.register('CommandOrControl+Shift+R', () => {
+    if (onReadScreen) onReadScreen();
+  });
+
+  globalShortcut.register('CommandOrControl+Shift+V', () => {
+    if (onToggleVoice) onToggleVoice();
   });
 }
 

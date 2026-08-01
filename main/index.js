@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, session } = require('electron');
 const path = require('path');
 
 const { excludeFromCapture, checkAffinity } = require('./native/displayAffinity');
@@ -87,9 +87,28 @@ function createOverlayWindow() {
 }
 
 app.whenReady().then(() => {
+  // Required for navigator.mediaDevices.getUserMedia (voice input) to work
+  // at all — Electron blocks media permission requests by default.
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
+
   createOverlayWindow();
 
-  registerHotkeys({ getOverlayWindow: () => overlayWindow });
+  registerHotkeys({
+    getOverlayWindow: () => overlayWindow,
+    onReadScreen: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.show();
+      overlayWindow.webContents.send('trigger-read-screen');
+    },
+    onToggleVoice: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.show();
+      overlayWindow.webContents.send('trigger-toggle-voice');
+    },
+  });
+
   registerIpcHandlers({
     getExclusionApplied: () => exclusionApplied,
     getWatermarkColor: () => (selfTest ? selfTest.getWatermarkColor() : null),
