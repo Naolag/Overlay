@@ -28,17 +28,19 @@ class ApiKeyManager {
 
   _loadKeys() {
     const keys = [];
+    const looksLikePlaceholder = (val) =>
+      !val || val.includes('your_') || val.includes('_here') || val.trim().length < 10;
 
     for (let i = 1; i <= MAX_NUMBERED_KEYS; i++) {
       const val = process.env[`GEMINI_API_KEY_${i}`];
-      if (val && val !== 'your_key_here') keys.push(val);
+      if (val && !looksLikePlaceholder(val)) keys.push(val);
     }
 
     // Backward compatibility: only used if no numbered keys were found, so
     // we don't accidentally double-count a key set both ways.
     if (keys.length === 0) {
       const single = process.env.GEMINI_API_KEY;
-      if (single && single !== 'your_key_here') keys.push(single);
+      if (single && !looksLikePlaceholder(single)) keys.push(single);
     }
 
     return keys;

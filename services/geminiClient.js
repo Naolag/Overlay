@@ -98,9 +98,15 @@ async function query({ history = [], parts, systemInstruction }) {
       continue; // try the next key
     }
 
-    if (status === 403) {
+    if (status === 401 || status === 403) {
+      // 401/403 both indicate an auth/permission problem with THIS key —
+      // treated identically, marked invalid so it's never retried again
+      // this session.
       apiKeyManager.markInvalid(apiKey);
-      lastError = new GeminiClientError('Gemini API rejected this key (invalid or no permission).', bodyText);
+      lastError = new GeminiClientError(
+        `Gemini API rejected this key (HTTP ${status} — invalid or no permission).`,
+        bodyText
+      );
       continue; // try the next key
     }
 
@@ -113,8 +119,13 @@ async function query({ history = [], parts, systemInstruction }) {
       );
     }
 
-    // Other server-side errors (5xx) — worth trying the next key too, in
-    // case it's a transient issue tied to this specific key/project.
+    // Any OTHER status (5xx, etc.): mark rate-limited as a conservative
+    // default so rotation still advances — previously, unrecognized status
+    // codes fell through here without calling any mark function at all,
+    // meaning the loop retried the SAME key repeatedly instead of actually
+    // trying a different one. Always making forward progress here matters
+    // more than perfectly classifying every possible status code.
+    apiKeyManager.markRateLimited(apiKey, 30 * 1000);
     lastError = new GeminiClientError(`Gemini API returned an error (HTTP ${status}).`, bodyText);
   }
 
