@@ -3,7 +3,7 @@ const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
 const { captureScreenshotPart } = require('./screenCapture');
 const lessonsStore = require('./lessonsStore');
-
+const cv_prompt=require('../cv');
 // Applied to every Gemini call via system_instruction — the correct place
 // for persistent context/persona, rather than repeating disambiguating text
 // in each individual prompt. Fixes "on-call"/"triage" defaulting toward a
@@ -196,7 +196,35 @@ ipcMain.handle('gemini-summarize-recording', async (event, { base64Audio, mimeTy
 'Final Goal ' +
 'Generate answers that sound like they come from a capable junior software engineer with strong communication skills. ' +
 'Every answer should be truthful, technically accurate, conversational, and consistent with the candidate\'s background, leaving the interviewer with confidence in the candidate\'s reasoning and professionalism.' 
-;
+'Finaaly here is my CV'+
+'Naol Girma ' +
+'Adama, Ethiopia | naolggonfa@gmail.com | +251993270601 | GitHub | Portfolio ' +
+'Professional Summary ' +
+'Computer Science and Engineering student with full-stack development experience using React, ' +
+'Next.js, Node.js, Express.js, and PostgreSQL. Strong English communication, code review, ' +
+'debugging, and technical documentation skills. Passionate about AI systems, prompt engineering, ' +
+'AI response evaluation, and software quality assurance. Seeking remote AI Training, AI Coding ' +
+'Evaluator, Prompt Evaluator, and Data Annotation roles. ' +
+'Technical Skills ' +
+'Languages: JavaScript, TypeScript, SQL, HTML5, CSS3, Dart, Kotlin ' +
+'Frameworks: React, Next.js, Node.js, Express.js, React Native ' +
+'Databases: PostgreSQL, Supabase ' +
+'Tools: Git, GitHub, VS Code, Postman, Docker (basic), Linux (Ubuntu), npm, Figma ' +
+'AI Tools: ChatGPT, Claude, Gemini, GitHub Copilot, Cursor IDE, Perplexity AI ' +
+'AI Skills: Prompt Engineering, AI Response Evaluation, Code Review, Technical Writing, Bug ' +
+'Identification, Software Testing, Data Validation, Search Evaluation ' +
+'Experience ' +
+'Software Engineering Intern – Helder Technology Solutions ' +
+'Collaborated on client projects, implemented features, debugged applications, participated in code ' +
+'reviews, and delivered work under deadlines. ' +
+'Projects ' +
+'• Agricultural Investment Platform (React, Node.js, PostgreSQL) ' +
+'• ETX Ethiopia Conference Website ' +
+'• React Car Showcase Application ' +
+'Core Competencies ' +
+'Analytical Thinking • Problem Solving • Remote Collaboration • Attention to Detail • Documentation ' +
+'• REST APIs • Database Design • AI Model Evaluation • Quality Assurance'+
+'and here is my cv'+ cv_prompt ;
 
     // ✅ Use shared conversation history instead of []
     const history = conversationState.getHistory();

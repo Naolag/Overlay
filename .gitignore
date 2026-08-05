@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-
+cv.js
 # Electron build output
 dist/
 out/
@@ -41,3 +41,4 @@ coverage/
 # Package manager files (keep package-lock.json committed, ignore others)
 yarn.lock
 pnpm-lock.yaml
+
