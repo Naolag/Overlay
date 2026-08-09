@@ -1,9 +1,4 @@
-# Testing Guide — How to Actually Run These Checks
 
-Everything here uses tools already on your Windows machine. No new installs needed
-except where noted. Organized by "can test now" vs "needs later-day code."
-
----
 
 ## Tool you'll use for almost everything: Xbox Game Bar recorder
 
