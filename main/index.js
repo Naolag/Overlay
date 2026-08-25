@@ -1,6 +1,12 @@
 require('dotenv').config();
 
-const { app, BrowserWindow, dialog, session } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  session,
+  desktopCapturer,
+} = require('electron');
 const path = require('path');
 
 const { excludeFromCapture, checkAffinity } = require('./native/displayAffinity');
@@ -37,6 +43,8 @@ function createOverlayWindow() {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      enableBlinkFeatures: 'MediaCapture',
+      
     },
   });
 
@@ -92,6 +100,44 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(permission === 'media');
   });
+  // Allow renderer calls to navigator.mediaDevices.getDisplayMedia()
+// to capture the entire Windows desktop.
+session.defaultSession.setDisplayMediaRequestHandler(
+  async (request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 0, height: 0 },
+      });
+
+      if (!sources.length) {
+        console.error('[screen-recording] No screen sources found');
+        callback({});
+        return;
+      }
+
+      // For now, automatically select the first physical display.
+      const screen = sources[0];
+
+      console.log(
+        '[screen-recording] Granting capture source:',
+        screen.name,
+        screen.id
+      );
+
+      callback({
+        video: screen,
+      });
+    } catch (err) {
+      console.error(
+        '[screen-recording] Failed to get desktop source:',
+        err
+      );
+
+      callback({});
+    }
+  }
+);
 
   createOverlayWindow();
 
@@ -107,6 +153,11 @@ app.whenReady().then(() => {
       overlayWindow.show();
       overlayWindow.webContents.send('trigger-toggle-voice');
     },
+    onToggleScreenRecording: () => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    overlayWindow.show();
+    overlayWindow.webContents.send('trigger-toggle-screen-recording');
+  },
   });
 
   registerIpcHandlers({

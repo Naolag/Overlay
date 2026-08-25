@@ -227,6 +227,210 @@ function toggleRecording() {
 
 voiceBtn.addEventListener('click', toggleRecording);
 window.overlayAPI.onTriggerToggleVoice(toggleRecording);
+// --- Screen recording (hotkey only, no UI button) ---
+// --- Screen recording (hotkey only, no UI button) ---
+// --- Screen recording ---
+let isScreenRecording = false;
+let screenRecorder = null;
+let screenChunks = [];
+
+async function toggleScreenRecording() {
+  if (isScreenRecording) {
+    stopScreenRecording();
+    return;
+  }
+
+  await startScreenRecording();
+}
+
+async function startScreenRecording() {
+  try {
+    if (!navigator.mediaDevices) {
+      throw new Error(
+        'MediaDevices API is unavailable in this Electron renderer.'
+      );
+    }
+
+    if (!navigator.mediaDevices.getDisplayMedia) {
+      throw new Error(
+        'getDisplayMedia() is unavailable in this Electron version/context.'
+      );
+    }
+
+    appendEntry('System', '🎥 Starting screen capture…');
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: 30,
+      },
+      audio: false,
+    });
+
+    if (!stream || stream.getVideoTracks().length === 0) {
+      throw new Error('No video track was returned by Windows capture.');
+    }
+
+    screenChunks = [];
+
+    const mimeTypes = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+
+    const supportedMimeType = mimeTypes.find((type) =>
+      MediaRecorder.isTypeSupported(type)
+    );
+
+    if (!supportedMimeType) {
+      throw new Error(
+        'No supported WebM video codec was found.'
+      );
+    }
+
+    screenRecorder = new MediaRecorder(stream, {
+      mimeType: supportedMimeType,
+    });
+
+    screenRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        screenChunks.push(event.data);
+      }
+    };
+
+    screenRecorder.onerror = (event) => {
+      console.error(
+        '[screen-recording] MediaRecorder error:',
+        event.error
+      );
+
+      appendEntry(
+        'System',
+        '❌ Screen recorder error: ' +
+          (event.error?.message || 'Unknown recorder error'),
+        true
+      );
+    };
+
+    screenRecorder.onstop = async () => {
+      try {
+        const mimeType =
+          screenRecorder.mimeType || supportedMimeType;
+
+        const blob = new Blob(screenChunks, {
+          type: mimeType,
+        });
+
+        if (blob.size === 0) {
+          throw new Error('Recording produced an empty video file.');
+        }
+
+        appendEntry(
+          'System',
+          '💾 Saving recording…'
+        );
+
+        const arrayBuffer = await blob.arrayBuffer();
+
+        const result =
+          await window.overlayAPI.saveScreenRecording(
+            arrayBuffer,
+            mimeType
+          );
+
+        if (!result.ok) {
+          throw new Error(result.error);
+        }
+
+        appendEntry(
+          'System',
+          `🎥 Recording saved: ${result.filePath}`
+        );
+
+      } catch (err) {
+        console.error(
+          '[screen-recording] Finalization failed:',
+          err
+        );
+
+        appendEntry(
+          'System',
+          '❌ Failed to save recording: ' +
+            err.message,
+          true
+        );
+      } finally {
+        screenChunks = [];
+        screenRecorder = null;
+      }
+    };
+
+    // If the user stops sharing through Windows/browser UI,
+    // automatically stop our recorder too.
+    const videoTrack = stream.getVideoTracks()[0];
+
+    videoTrack.addEventListener('ended', () => {
+      if (isScreenRecording) {
+        stopScreenRecording();
+      }
+    });
+
+    screenRecorder.start(1000);
+
+    isScreenRecording = true;
+
+    appendEntry(
+      'System',
+      '🎥 Screen recording started'
+    );
+
+  } catch (err) {
+    console.error(
+      '[screen-recording] Start failed:',
+      err
+    );
+
+    isScreenRecording = false;
+    screenRecorder = null;
+    screenChunks = [];
+
+    appendEntry(
+      'System',
+      '❌ Screen recording failed: ' +
+        (err.message || err),
+      true
+    );
+  }
+}
+
+function stopScreenRecording() {
+  if (!screenRecorder || !isScreenRecording) {
+    return;
+  }
+
+  appendEntry(
+    'System',
+    '⏹ Stopping screen recording…'
+  );
+
+  isScreenRecording = false;
+
+  if (screenRecorder.state !== 'inactive') {
+    screenRecorder.stop();
+  }
+
+  const stream = screenRecorder.stream;
+
+  if (stream) {
+    stream.getTracks().forEach((track) => {
+      track.stop();
+    });
+  }
+}
+
+window.overlayAPI.onToggleScreenRecording(
+  toggleScreenRecording
+);
 
 // --- Clear conversation ---
 

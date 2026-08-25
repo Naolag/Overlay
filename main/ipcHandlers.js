@@ -4,6 +4,8 @@ const conversationState = require('./conversationState');
 const { captureScreenshotPart } = require('./screenCapture');
 const lessonsStore = require('./lessonsStore');
 const cv_prompt=require('../cv');
+const fs = require('fs');
+const path = require('path');
 // Applied to every Gemini call via system_instruction — the correct place
 // for persistent context/persona, rather than repeating disambiguating text
 // in each individual prompt. Fixes "on-call"/"triage" defaulting toward a
@@ -21,6 +23,46 @@ const SYSTEM_INSTRUCTION =
  */
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
+
+  ipcMain.handle(
+  'save-screen-recording',
+  async (event, { arrayBuffer, mimeType }) => {
+    try {
+      const recordingsDir = path.join(__dirname, '..', 'data', 'recordings');
+
+      await fs.promises.mkdir(recordingsDir, {
+        recursive: true,
+      });
+
+      const extension = mimeType.includes('webm')
+        ? 'webm'
+        : 'webm';
+
+      const fileName = `recording-${Date.now()}.${extension}`;
+
+      const filePath = path.join(recordingsDir, fileName);
+
+      await fs.promises.writeFile(
+        filePath,
+        Buffer.from(arrayBuffer)
+      );
+
+      console.log('[screen-recording] Saved:', filePath);
+
+      return {
+        ok: true,
+        filePath,
+      };
+    } catch (err) {
+      console.error('[screen-recording] Save failed:', err);
+
+      return {
+        ok: false,
+        error: err.message || 'Failed to save recording',
+      };
+    }
+  }
+);
 
   // Typed chat — plain text query, uses shared conversation history
   ipcMain.handle('gemini-query', async (event, prompt) => {

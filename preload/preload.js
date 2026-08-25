@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   clearConversation: () => ipcRenderer.invoke('clear-conversation'),
 
   getDesktopSourceId: () => ipcRenderer.invoke('get-desktop-source-id'),
+  saveScreenRecording: (arrayBuffer, mimeType) =>
+  ipcRenderer.invoke('save-screen-recording', {
+    arrayBuffer,
+    mimeType,
+  }),
   summarizeRecording: (base64Audio, mimeType, label) =>
     ipcRenderer.invoke('gemini-summarize-recording', { base64Audio, mimeType, label }),
   getAllLessons: () => ipcRenderer.invoke('get-all-lessons'),
@@ -16,6 +21,8 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
   resetSelfTest: () => ipcRenderer.invoke('reset-self-test'),
+
+   
 
   // Fired when the self-test loop detects the watermark in a self-capture
   // (exclusion failed) — renderer must clear all sensitive content on this.
@@ -35,4 +42,9 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   onTriggerToggleVoice: (callback) => {
     ipcRenderer.on('trigger-toggle-voice', () => callback());
   },
+  onToggleScreenRecording: (callback) => {
+  ipcRenderer.on('trigger-toggle-screen-recording', () => callback());
+},
+
+
 });

@@ -10,7 +10,7 @@ const { globalShortcut } = require('electron');
  * panicHide is deliberately the dumbest, most direct code path in the app —
  * it should keep working even if other logic (self-test loop, etc.) breaks.
  */
-function registerHotkeys({ getOverlayWindow, onReadScreen, onToggleVoice }) {
+function registerHotkeys({getOverlayWindow, onReadScreen, onToggleVoice, onToggleScreenRecording }) {
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
     const win = getOverlayWindow();
     if (!win) return;
@@ -38,6 +38,11 @@ function registerHotkeys({ getOverlayWindow, onReadScreen, onToggleVoice }) {
   globalShortcut.register('CommandOrControl+Shift+V', () => {
     if (onToggleVoice) onToggleVoice();
   });
+
+globalShortcut.register('CommandOrControl+Shift+S', () => {
+    if (onToggleScreenRecording) onToggleScreenRecording();
+  });
+
 }
 
 function unregisterHotkeys() {
