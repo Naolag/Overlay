@@ -43,6 +43,11 @@ globalShortcut.register('CommandOrControl+Shift+S', () => {
     if (onToggleScreenRecording) onToggleScreenRecording();
   });
 
+  console.log(
+  '[hotkeys] Ctrl+Shift+S:',
+  globalShortcut.isRegistered('CommandOrControl+Shift+S')
+);
+
 }
 
 function unregisterHotkeys() {
