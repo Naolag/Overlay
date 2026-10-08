@@ -89,15 +89,18 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
       const promptText =
         userPrompt && userPrompt.trim()
           ? userPrompt
-          : 'Read what is on this screen and help me understand or triage it.';
+          : 'Read what is on this screen and '+
+           'Give me the optimal answer to the question on screen like it is for an AI interviewer'+
+           'Make it concise but information-dense, technically accurate, and senior-level.'+
+           'minimalize follow up question like if it was interview  the interviewer has minimal reason to ask follow-up questions'+
+           ' we need concise and coherent one paragraph answer';
 
-      const history = conversationState.getHistory();
-      const { text, history: updatedHistory } = await geminiClient.query({
+      const history = []
+      const { text, history: [] } = await geminiClient.query({
         history,
         parts: [{ text: promptText }, imagePart],
         systemInstruction: SYSTEM_INSTRUCTION,
       });
-      conversationState.setHistory(updatedHistory);
       return { ok: true, text };
     } catch (err) {
       console.error('[gemini-screen-query] failed:', err);
