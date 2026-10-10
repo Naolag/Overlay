@@ -13,6 +13,8 @@ const { excludeFromCapture, checkAffinity } = require('./native/displayAffinity'
 const { registerHotkeys, unregisterHotkeys } = require('./hotkeys');
 const { registerIpcHandlers } = require('./ipcHandlers');
 const { CaptureSelfTest } = require('./captureSelfTest');
+const { startForegroundWindowTracking,
+} = require('./activeWindow');
 
 let overlayWindow = null;
 let exclusionApplied = false;
@@ -99,6 +101,7 @@ app.whenReady().then(() => {
   // at all — Electron blocks media permission requests by default.
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(permission === 'media');
+    startForegroundWindowTracking(() => overlayWindow);
   });
   // Allow renderer calls to navigator.mediaDevices.getDisplayMedia()
 // to capture the entire Windows desktop.

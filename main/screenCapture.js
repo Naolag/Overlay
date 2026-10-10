@@ -1,27 +1,62 @@
+
 const { desktopCapturer, screen } = require('electron');
 
-// ---------------------------------------------------------------------------
-// Captures the primary screen and returns it as a Gemini "part" object ready
-// to include in a query. Uses the same desktopCapturer mechanism as the
-// self-test loop, so it naturally excludes the overlay itself (consistent
-// with WDA_EXCLUDEFROMCAPTURE) — you're capturing everything ELSE on screen,
-// same as any other capture tool would see.
-//
-// PRIVACY NOTE: this sends raw, unsanitized screen pixels to Gemini. There
-// is no redaction step yet (that's the planned sanitization engine, not
-// built). Only call this on deliberate user action — never automatically.
-// ---------------------------------------------------------------------------
+const FAST_MAX_WIDTH = 1280;
+const FAST_MAX_HEIGHT = 900;
+const JPEG_QUALITY = 75;
 
+function logTiming(label, start) {
+  console.log(`[SCREEN] ${label}: ${Date.now() - start} ms`);
+}
+
+function imageToGeminiPart(nativeImage, label) {
+  const start = Date.now();
+
+  if (!nativeImage || nativeImage.isEmpty()) {
+    throw new Error(`${label}: captured image is empty.`);
+  }
+
+  const originalSize = nativeImage.getSize();
+
+  // Resize only when the image exceeds our fast-mode limits.
+  const resizedImage =
+    originalSize.width > FAST_MAX_WIDTH ||
+    originalSize.height > FAST_MAX_HEIGHT
+      ? nativeImage.resize({
+          width: FAST_MAX_WIDTH,
+          height: FAST_MAX_HEIGHT,
+          quality: 'good',
+        })
+      : nativeImage;
+
+  const jpegBuffer = resizedImage.toJPEG(JPEG_QUALITY);
+  const base64 = jpegBuffer.toString('base64');
+
+  logTiming(`${label} resize + JPEG + base64`, start);
+
+  console.log(
+    `[SCREEN] Image: ${originalSize.width}x${originalSize.height}, ` +
+    `${(jpegBuffer.length / 1024).toFixed(0)} KB JPEG`
+  );
+
+  return {
+    inline_data: {
+      mime_type: 'image/jpeg',
+      data: base64,
+    },
+  };
+}
+
+// Existing whole-monitor capture retained for fallback/testing.
 async function captureScreenshotPart() {
+  const start = Date.now();
   const display = screen.getPrimaryDisplay();
-  const { width, height } = display.size;
-  const scaleFactor = display.scaleFactor || 1;
 
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
     thumbnailSize: {
-      width: Math.round(width * scaleFactor),
-      height: Math.round(height * scaleFactor),
+      width: FAST_MAX_WIDTH,
+      height: FAST_MAX_HEIGHT,
     },
   });
 
@@ -29,16 +64,48 @@ async function captureScreenshotPart() {
     throw new Error('No screen source available to capture.');
   }
 
-  const source = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+  const source =
+    sources.find((s) => String(s.display_id) === String(display.id)) ||
+    sources[0];
 
-  if (source.thumbnail.isEmpty()) {
-    throw new Error('Screen capture returned an empty image.');
-  }
+  logTiming('Whole-screen source capture', start);
 
-  const pngBuffer = source.thumbnail.toPNG();
-  const base64 = pngBuffer.toString('base64');
-
-  return { inline_data: { mime_type: 'image/png', data: base64 } };
+  return imageToGeminiPart(source.thumbnail, 'Whole screen');
 }
 
-module.exports = { captureScreenshotPart };
+// Captures a specified window source.
+// The caller must identify the correct active application window.
+async function captureWindowSourcePart(sourceId) {
+  if (!sourceId) {
+    throw new Error('A window source ID is required.');
+  }
+
+  const start = Date.now();
+
+  const sources = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: {
+      width: FAST_MAX_WIDTH,
+      height: FAST_MAX_HEIGHT,
+    },
+  });
+
+  const source = sources.find((item) => item.id === sourceId);
+
+  if (!source) {
+    throw new Error(
+      'The selected window is no longer available. Please try again.'
+    );
+  }
+
+  console.log(`[SCREEN] Selected window: ${source.name}`);
+  logTiming('Window source capture', start);
+
+  return imageToGeminiPart(source.thumbnail, 'Active window');
+}
+
+module.exports = {
+  captureScreenshotPart,
+  captureWindowSourcePart,
+};
+
