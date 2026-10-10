@@ -1,13 +1,13 @@
 
 require('dotenv').config();
 
-const key = process.env.GEMINI_API_KEY_1;
+const key = process.env.GEMINI_API_KEY_3;
 const start = Date.now();
 
 async function test() {
   try {
     const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
       {
         method: 'POST',
         headers: {
@@ -34,4 +34,4 @@ if (!key) {
   console.log('GEMINI_API_KEY_1 is missing from .env');
 } else {
   test();
-}s
+}
