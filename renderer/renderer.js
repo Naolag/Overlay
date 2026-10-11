@@ -200,10 +200,13 @@ async function handleRecordingStop() {
   appendEntry('You', '🎤 (voice message)');
   voiceBtn.disabled = true;
 
-  const arrayBuffer = await blob.arrayBuffer();
-  const base64 = arrayBufferToBase64(arrayBuffer);
+const arrayBuffer = await blob.arrayBuffer();
+const bytes = new Uint8Array(arrayBuffer);
 
-  const result = await window.overlayAPI.sendVoiceQuery(base64, mimeType);
+const result = await window.overlayAPI.saveScreenRecording(
+  bytes,
+  mimeType
+);
 
   if (result.ok) {
     appendEntry('Gemini', result.text);
@@ -230,6 +233,7 @@ window.overlayAPI.onTriggerToggleVoice(toggleRecording);
 // --- Screen recording (hotkey only, no UI button) ---
 // --- Screen recording (hotkey only, no UI button) ---
 // --- Screen recording ---
+// --- Screen recording (hotkey only, no UI button) ---
 let isScreenRecording = false;
 let screenRecorder = null;
 let screenChunks = [];
@@ -259,20 +263,62 @@ async function startScreenRecording() {
 
     appendEntry('System', '🎥 Starting screen capture…');
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    /*
+     * IMPORTANT:
+     * The overlay's capture exclusion is controlled by the native
+     * SetWindowDisplayAffinity implementation in index.js.
+     *
+     * This recording code does NOT modify that behavior.
+     *
+     * audio:true asks Electron for the loopback/system-audio track.
+     * index.js supplies that track through setDisplayMediaRequestHandler().
+     */
+    const displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: {
         frameRate: 30,
       },
-      audio: false,
+      audio: true,
     });
 
-    if (!stream || stream.getVideoTracks().length === 0) {
+    if (!displayStream || displayStream.getVideoTracks().length === 0) {
       throw new Error('No video track was returned by Windows capture.');
+    }
+
+    /*
+     * Build the recording stream.
+     *
+     * At this stage we use the audio track supplied by Electron.
+     * We do NOT start the separate systemAudioRecorder below.
+     */
+    const recordingTracks = [
+      ...displayStream.getVideoTracks(),
+      ...displayStream.getAudioTracks(),
+    ];
+
+    const recordingStream = new MediaStream(recordingTracks);
+
+    console.log(
+      '[screen-recording] video tracks:',
+      recordingStream.getVideoTracks().length
+    );
+
+    console.log(
+      '[screen-recording] audio tracks:',
+      recordingStream.getAudioTracks().length
+    );
+
+    if (recordingStream.getAudioTracks().length === 0) {
+      appendEntry(
+        'System',
+        '⚠ Screen capture started, but Windows did not provide a system-audio track.'
+      );
     }
 
     screenChunks = [];
 
     const mimeTypes = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
       'video/webm',
@@ -283,12 +329,19 @@ async function startScreenRecording() {
     );
 
     if (!supportedMimeType) {
+      recordingStream.getTracks().forEach((track) => track.stop());
+
       throw new Error(
-        'No supported WebM video codec was found.'
+        'No supported WebM video/audio codec was found.'
       );
     }
 
-    screenRecorder = new MediaRecorder(stream, {
+    console.log(
+      '[screen-recording] Using MIME type:',
+      supportedMimeType
+    );
+
+    screenRecorder = new MediaRecorder(recordingStream, {
       mimeType: supportedMimeType,
     });
 
@@ -322,7 +375,9 @@ async function startScreenRecording() {
         });
 
         if (blob.size === 0) {
-          throw new Error('Recording produced an empty video file.');
+          throw new Error(
+            'Recording produced an empty video file.'
+          );
         }
 
         appendEntry(
@@ -332,6 +387,10 @@ async function startScreenRecording() {
 
         const arrayBuffer = await blob.arrayBuffer();
 
+        /*
+         * Preload exposes saveScreenRecording(), which sends
+         * this to ipcHandlers.js -> save-screen-recording.
+         */
         const result =
           await window.overlayAPI.saveScreenRecording(
             arrayBuffer,
@@ -359,21 +418,39 @@ async function startScreenRecording() {
             err.message,
           true
         );
+
       } finally {
         screenChunks = [];
         screenRecorder = null;
       }
     };
 
-    // If the user stops sharing through Windows/browser UI,
-    // automatically stop our recorder too.
-    const videoTrack = stream.getVideoTracks()[0];
+    /*
+     * If the user stops Windows screen sharing,
+     * stop our recorder too.
+     */
+    const videoTrack =
+      recordingStream.getVideoTracks()[0];
 
     videoTrack.addEventListener('ended', () => {
       if (isScreenRecording) {
         stopScreenRecording();
       }
     });
+
+    /*
+     * Also stop recording if the audio track unexpectedly ends.
+     */
+    const audioTrack =
+      recordingStream.getAudioTracks()[0];
+
+    if (audioTrack) {
+      audioTrack.addEventListener('ended', () => {
+        console.warn(
+          '[screen-recording] System audio track ended.'
+        );
+      });
+    }
 
     screenRecorder.start(1000);
 
@@ -415,16 +492,28 @@ function stopScreenRecording() {
 
   isScreenRecording = false;
 
+  /*
+   * IMPORTANT:
+   * Do not immediately stop the tracks before MediaRecorder
+   * finishes its final dataavailable/onstop sequence.
+   */
   if (screenRecorder.state !== 'inactive') {
     screenRecorder.stop();
   }
 
   const stream = screenRecorder.stream;
 
+  /*
+   * Stop the underlying tracks after requesting recorder.stop().
+   */
   if (stream) {
-    stream.getTracks().forEach((track) => {
-      track.stop();
-    });
+    setTimeout(() => {
+      stream.getTracks().forEach((track) => {
+        if (track.readyState !== 'ended') {
+          track.stop();
+        }
+      });
+    }, 100);
   }
 }
 

@@ -1,9 +1,12 @@
-const { ipcMain, desktopCapturer } = require('electron');
+const { ipcMain, desktopCapturer,app } = require('electron');
 const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
 const { captureScreenshotPart } = require('./screenCapture');
+const { getLastExternalWindowHandle, } = require('./activeWindow');
 const lessonsStore = require('./lessonsStore');
 const cv_prompt=require('../cv');
+const ffmpegPath = require('ffmpeg-static');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 // Applied to every Gemini call via system_instruction — the correct place
@@ -24,37 +27,130 @@ const SYSTEM_INSTRUCTION =
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
 
-  ipcMain.handle(
+ipcMain.handle(
   'save-screen-recording',
   async (event, { arrayBuffer, mimeType }) => {
     try {
-      const recordingsDir = path.join(__dirname, '..', 'data', 'recordings');
+      const recordingsDir = path.join(
+        __dirname,
+        '..',
+        'data',
+        'recordings'
+      );
 
       await fs.promises.mkdir(recordingsDir, {
         recursive: true,
       });
 
-      const extension = mimeType.includes('webm')
-        ? 'webm'
-        : 'webm';
+      // Normalize IPC data into a Buffer
+      let buffer;
 
-      const fileName = `recording-${Date.now()}.${extension}`;
+      if (Buffer.isBuffer(arrayBuffer)) {
+        buffer = arrayBuffer;
+      } else if (arrayBuffer instanceof ArrayBuffer) {
+        buffer = Buffer.from(arrayBuffer);
+      } else if (
+        arrayBuffer?.type === 'Buffer' &&
+        Array.isArray(arrayBuffer.data)
+      ) {
+        buffer = Buffer.from(arrayBuffer.data);
+      } else if (arrayBuffer?.data && Array.isArray(arrayBuffer.data)) {
+        buffer = Buffer.from(arrayBuffer.data);
+      } else if (Array.isArray(arrayBuffer)) {
+        buffer = Buffer.from(arrayBuffer);
+      } else {
+        throw new TypeError('Invalid recording data received');
+      }
 
-      const filePath = path.join(recordingsDir, fileName);
+      const timestamp = Date.now();
 
-      await fs.promises.writeFile(
-        filePath,
-        Buffer.from(arrayBuffer)
+      const inputPath = path.join(
+        recordingsDir,
+        `recording-${timestamp}-raw.webm`
       );
 
-      console.log('[screen-recording] Saved:', filePath);
+      const outputPath = path.join(
+        recordingsDir,
+        `recording-${timestamp}.webm`
+      );
+
+      // Save raw recording
+      await fs.promises.writeFile(inputPath, buffer);
+
+      console.log('[screen-recording] Raw file:', inputPath);
+
+      // Finalize/remux WebM so seeking works correctly
+      await new Promise((resolve, reject) => {
+        const ffmpeg = spawn(ffmpegPath, [
+          '-y',
+
+          '-i',
+          inputPath,
+
+          // Keep video
+          '-map',
+          '0:v:0',
+
+          // Keep audio if present
+          '-map',
+          '0:a?',
+
+          // Do not re-encode
+          '-c:v',
+          'copy',
+
+          '-c:a',
+          'copy',
+
+          // Generate proper timestamps
+          '-fflags',
+          '+genpts',
+
+          // Make timestamps start cleanly
+          '-avoid_negative_ts',
+          'make_zero',
+
+          outputPath,
+        ]);
+
+        let stderr = '';
+
+        ffmpeg.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+
+        ffmpeg.on('error', reject);
+
+        ffmpeg.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(
+              new Error(
+                `FFmpeg failed with code ${code}: ${stderr.slice(-2000)}`
+              )
+            );
+          }
+        });
+      });
+
+      // Remove raw file
+      await fs.promises.unlink(inputPath);
+
+      console.log(
+        '[screen-recording] Finalized:',
+        outputPath
+      );
 
       return {
         ok: true,
-        filePath,
+        filePath: outputPath,
       };
     } catch (err) {
-      console.error('[screen-recording] Save failed:', err);
+      console.error(
+        '[screen-recording] Finalization failed:',
+        err
+      );
 
       return {
         ok: false,
@@ -63,7 +159,6 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
     }
   }
 );
-
   // Typed chat — plain text query, uses shared conversation history
   ipcMain.handle('gemini-query', async (event, prompt) => {
     try {
@@ -83,28 +178,66 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
 
   // Screen recognition — captures the screen, sends it as an image alongside
   // an optional user prompt, uses the SAME shared history as typed chat
+   // Screen recognition — capture the active external application window
   ipcMain.handle('gemini-screen-query', async (event, userPrompt) => {
+    const startedAt = Date.now();
+
     try {
-      const imagePart = await captureScreenshotPart();
+      const hwnd = getLastExternalWindowHandle();
+
+      if (!hwnd) {
+        throw new Error(
+          'No active application window detected. Click the app you want to read, then try again.'
+        );
+      }
+
+      const targetHandle = BigInt(`0x${hwnd}`).toString(10);
+
+      const sources = await desktopCapturer.getSources({
+        types: ['window'],
+        thumbnailSize: { width: 1280, height: 900 },
+      });
+
+      const source = sources.find((item) => {
+        const match = item.id.match(/^window:(\d+):/);
+        return match && match[1] === targetHandle;
+      });
+
+      if (!source) {
+        throw new Error(
+          'Could not find the active window. Click the target application and try again.'
+        );
+      }
+
+      console.log('[SCREEN] Target window:', source.name);
+
+      const imagePart = await captureWindowSourcePart(source.id);
+      console.log('[SCREEN] Capture total:', Date.now() - startedAt, 'ms');
+
       const promptText =
         userPrompt && userPrompt.trim()
           ? userPrompt
-          : 'Read what is on this screen and '+
-           'Give me the optimal answer to the question on screen like it is for an AI interviewer'+
-           'Make it concise but information-dense, technically accurate, and senior-level.'+
-           'minimalize follow up question like if it was interview  the interviewer has minimal reason to ask follow-up questions'+
-           ' we need concise and coherent one paragraph answer';
+          : 'Read this screen and give the optimal answer to the question shown. Be concise, technically accurate, and information-dense.';
 
-      const history = []
-      const { text, history: [] } = await geminiClient.query({
-        history,
+      const geminiStartedAt = Date.now();
+
+      const { text } = await geminiClient.query({
+        history: [],
         parts: [{ text: promptText }, imagePart],
         systemInstruction: SYSTEM_INSTRUCTION,
       });
+
+      console.log('[SCREEN] Gemini request:', Date.now() - geminiStartedAt, 'ms');
+      console.log('[SCREEN] Total request:', Date.now() - startedAt, 'ms');
+
       return { ok: true, text };
     } catch (err) {
       console.error('[gemini-screen-query] failed:', err);
-      return { ok: false, error: err.message || 'Unknown error' };
+
+      return {
+        ok: false,
+        error: err.message || 'Unknown error',
+      };
     }
   });
 
