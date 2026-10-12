@@ -1,7 +1,7 @@
 const { ipcMain, desktopCapturer,app } = require('electron');
 const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
-const { captureScreenshotPart } = require('./screenCapture');
+const { captureWindowSourcePart, } = require('./screenCapture');
 const { getLastExternalWindowHandle, } = require('./activeWindow');
 const lessonsStore = require('./lessonsStore');
 const cv_prompt=require('../cv');

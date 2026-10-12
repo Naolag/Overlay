@@ -44,13 +44,14 @@ function startForegroundWindowTracking(getOverlayWindow) {
       const overlay = getOverlayWindow();
       const overlayHandle = getBrowserWindowHandle(overlay);
 
-      if (
-        currentHandle &&
-        currentHandle !== overlayHandle
-      ) {
-        lastExternalWindowHandle = currentHandle;
-        console.log('[active-window] Last external:', lastExternalWindowHandle);
-      }
+     if (
+      currentHandle &&
+      currentHandle !== overlayHandle &&
+      currentHandle !== lastExternalWindowHandle
+    ) {
+      lastExternalWindowHandle = currentHandle;
+      console.log('[active-window] Last external:', lastExternalWindowHandle);
+    }
     } catch (error) {
       console.error('[active-window] Tracking error:', error.message);
     }

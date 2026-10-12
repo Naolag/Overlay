@@ -22,7 +22,7 @@ const ENDPOINT_BASE =
 // Retry configuration
 // ---------------------------------------------------------------------------
 
-const MAX_TRANSIENT_RETRIES = 3;
+const MAX_TRANSIENT_RETRIES = 1;
 
 // 1s -> 2s -> 4s, with jitter.
 // Google's troubleshooting guidance recommends exponential backoff for
@@ -30,7 +30,7 @@ const MAX_TRANSIENT_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 
 // Don't allow one request to hang for several minutes.
-const REQUEST_TIMEOUT_MS = 10 * 1000;
+const REQUEST_TIMEOUT_MS = 20 * 1000;
 
 // ---------------------------------------------------------------------------
 // Small helper for delaying retries.

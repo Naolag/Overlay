@@ -13,7 +13,8 @@ const { excludeFromCapture, checkAffinity } = require('./native/displayAffinity'
 const { registerHotkeys, unregisterHotkeys } = require('./hotkeys');
 const { registerIpcHandlers } = require('./ipcHandlers');
 const { CaptureSelfTest } = require('./captureSelfTest');
-const { startForegroundWindowTracking,
+const {
+  startForegroundWindowTracking,
 } = require('./activeWindow');
 
 let overlayWindow = null;
@@ -101,8 +102,10 @@ app.whenReady().then(() => {
   // at all — Electron blocks media permission requests by default.
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(permission === 'media');
-    startForegroundWindowTracking(() => overlayWindow);
+   
   });
+   console.log('[DEBUG] Starting foreground tracker now');
+startForegroundWindowTracking(() => overlayWindow);
   // Allow renderer calls to navigator.mediaDevices.getDisplayMedia()
 // to capture the entire Windows desktop.
 session.defaultSession.setDisplayMediaRequestHandler(
@@ -130,6 +133,7 @@ session.defaultSession.setDisplayMediaRequestHandler(
 
       callback({
         video: screen,
+        audio: 'loopback'
       });
     } catch (err) {
       console.error(
