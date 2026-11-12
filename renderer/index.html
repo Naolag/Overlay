@@ -23,6 +23,23 @@
 
     <div id="chat-log"></div>
 
+    <div id="interview-prep-panel" hidden>
+      <div class="prep-header">
+        <strong>Prepare for this interview</strong>
+        <button id="close-prep-btn" type="button" aria-label="Close">×</button>
+      </div>
+      <label for="job-description">Job description</label>
+      <textarea id="job-description" placeholder="Paste the complete job description…"></textarea>
+      <label for="focus-areas">Interview focus areas (optional)</label>
+      <textarea id="focus-areas" placeholder="e.g. Python, ML fundamentals, debugging, communication…"></textarea>
+      <div class="prep-actions">
+        <button id="prepare-profile-btn" type="button">Analyze &amp; Save Profile</button>
+        <button id="clear-profile-btn" type="button">Clear Profile</button>
+      </div>
+      <div id="profile-status" role="status">No prepared profile loaded.</div>
+      <pre id="profile-preview"></pre>
+    </div>
+
     <form id="chat-form">
       <textarea id="chat-input" placeholder="Ask a quick triage question…" autofocus></textarea>
       <button id="chat-send" type="submit">Send</button>
@@ -31,6 +48,7 @@
       <button id="read-screen-btn" type="button">📷 Read Screen</button>
       <button id="voice-btn" type="button">🎤 Talk</button>
       <button id="clear-btn" type="button" title="Clear conversation history">🗑 Clear</button>
+      <button id="open-prep-btn" type="button" title="Prepare role-specific interview context">🎯 Interview Setup</button>
     </div>
     <div id="action-row">
       <button id="record-audio-btn" type="button" title="Capture postmortem/talk audio playing through your speakers">🔊 Capture Recording</button>
