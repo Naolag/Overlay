@@ -1,5 +1,6 @@
 const { ipcMain, desktopCapturer,app } = require('electron');
 const geminiClient = require('../services/geminiClient');
+const interviewProfile = require('./interviewProfile');
 const conversationState = require('./conversationState');
 const { captureWindowSourcePart, } = require('./screenCapture');
 const { getLastExternalWindowHandle, } = require('./activeWindow');
@@ -25,6 +26,38 @@ const SYSTEM_INSTRUCTION =
  * Central place to see every ipcMain.handle registration in the app.
  */
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
+  interviewProfile.initializeInterviewProfile().catch((err) => {
+    console.error('[interview-profile] Initialization failed:', err);
+  });
+
+  ipcMain.handle('get-interview-profile', () => ({
+    ok: true,
+    profile: interviewProfile.getInterviewProfile()
+  }));
+
+  ipcMain.handle('prepare-interview-profile', async (event, { jobDescription, focusAreas }) => {
+    try {
+      const result = await interviewProfile.prepareInterviewProfile({
+        jobDescription,
+        focusAreas,
+        cvText: cv_prompt
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      console.error('[prepare-interview-profile] failed:', err);
+      return { ok: false, error: err.message || 'Could not prepare interview profile.' };
+    }
+  });
+
+  ipcMain.handle('clear-interview-profile', async () => {
+    try {
+      await interviewProfile.clearInterviewProfile();
+      return { ok: true };
+    } catch (err) {
+      console.error('[clear-interview-profile] failed:', err);
+      return { ok: false, error: err.message || 'Could not clear interview profile.' };
+    }
+  });
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
 
 ipcMain.handle(
@@ -221,10 +254,15 @@ ipcMain.handle(
 
       const geminiStartedAt = Date.now();
 
+      const preparedProfile = interviewProfile.getInterviewProfile();
+      const screenSystemInstruction = preparedProfile
+        ? SYSTEM_INSTRUCTION + '\n\nPrepared interview context (use as role/candidate context; CV evidence remains authoritative):\n' + preparedProfile
+        : SYSTEM_INSTRUCTION;
+
       const { text } = await geminiClient.query({
         history: [],
         parts: [{ text: promptText }, imagePart],
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: screenSystemInstruction,
       });
 
       console.log('[SCREEN] Gemini request:', Date.now() - geminiStartedAt, 'ms');
