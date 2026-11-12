@@ -4,6 +4,10 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   getExclusionStatus: () => ipcRenderer.invoke('get-exclusion-status'),
   sendQuery: (prompt) => ipcRenderer.invoke('gemini-query', prompt),
   sendScreenQuery: (prompt) => ipcRenderer.invoke('gemini-screen-query', prompt),
+  getInterviewProfile: () => ipcRenderer.invoke('get-interview-profile'),
+  prepareInterviewProfile: (jobDescription, focusAreas) =>
+    ipcRenderer.invoke('prepare-interview-profile', { jobDescription, focusAreas }),
+  clearInterviewProfile: () => ipcRenderer.invoke('clear-interview-profile'),
   sendVoiceQuery: (base64Audio, mimeType) =>
     ipcRenderer.invoke('gemini-voice-query', { base64Audio, mimeType }),
   clearConversation: () => ipcRenderer.invoke('clear-conversation'),
