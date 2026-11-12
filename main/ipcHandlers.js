@@ -257,7 +257,7 @@ ipcMain.handle(
       await interviewProfileReady;
       const preparedProfile = interviewProfile.getInterviewProfile();
       const screenSystemInstruction = preparedProfile
-        ? 'You are my real-time interview assistant. Read the screenshot and produce a concise, natural, technically accurate answer I can say aloud. Ground candidate claims in the prepared profile; never invent experience. Match the role and evaluation priorities described below. Output only the answer I should speak.\\n\\nPREPARED INTERVIEW CONTEXT:\\n' + preparedProfile
+        ? 'You are my real-time interview assistant. Read the screenshot and produce a concise, natural, technically accurate answer I can say aloud. Ground candidate claims in the prepared profile; never invent experience. Match the role and evaluation priorities described below. Output only the answer I should speak.\n\nPREPARED INTERVIEW CONTEXT:\n' + preparedProfile
         : SYSTEM_INSTRUCTION;
 
       const { text } = await geminiClient.query({
