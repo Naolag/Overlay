@@ -227,3 +227,109 @@ html, body {
   outline: none;
   border-color: rgba(196, 181, 253, 0.5);
 }
+
+/* Interview preparation overlay — independent of the live screenshot layout. */
+#interview-prep-panel[hidden] {
+  display: none !important;
+}
+
+#interview-prep-panel {
+  position: absolute;
+  z-index: 5000;
+  inset: 34px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #17171d;
+  border: 1px solid rgba(196, 181, 253, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  -webkit-app-region: no-drag;
+}
+
+.prep-header, .prep-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prep-header strong {
+  font-size: 13px;
+}
+
+#close-prep-btn {
+  color: #eee;
+  background: transparent;
+  border: 0;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+#interview-prep-panel label {
+  font-size: 11px;
+  color: #bbb;
+}
+
+#interview-prep-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 70px;
+  padding: 8px;
+  color: #eee;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  font: 12px/1.4 inherit;
+}
+
+#job-description {
+  height: 150px;
+}
+
+#focus-areas {
+  height: 65px;
+}
+
+.prep-actions button {
+  flex: 1;
+  padding: 8px 6px;
+  color: #eee;
+  background: rgba(255,255,255,0.09);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#prepare-profile-btn {
+  background: #5b21b6;
+}
+
+.prep-actions button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+#profile-status {
+  font-size: 11px;
+  color: #c4b5fd;
+  white-space: pre-wrap;
+}
+
+#profile-preview {
+  margin: 0;
+  padding: 8px;
+  max-height: 145px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #ddd;
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+  font: 10px/1.4 ui-monospace, monospace;
+}
