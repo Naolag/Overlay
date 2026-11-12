@@ -26,14 +26,14 @@ const SYSTEM_INSTRUCTION =
  * Central place to see every ipcMain.handle registration in the app.
  */
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
-  interviewProfile.initializeInterviewProfile().catch((err) => {
+  const interviewProfileReady = interviewProfile.initializeInterviewProfile().catch((err) => {
     console.error('[interview-profile] Initialization failed:', err);
   });
 
-  ipcMain.handle('get-interview-profile', () => ({
-    ok: true,
-    profile: interviewProfile.getInterviewProfile()
-  }));
+  ipcMain.handle('get-interview-profile', async () => {
+    await interviewProfileReady;
+    return { ok: true, profile: interviewProfile.getInterviewProfile() };
+  });
 
   ipcMain.handle('prepare-interview-profile', async (event, { jobDescription, focusAreas }) => {
     try {
