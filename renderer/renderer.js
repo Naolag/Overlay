@@ -521,6 +521,79 @@ window.overlayAPI.onToggleScreenRecording(
   toggleScreenRecording
 );
 
+// --- Pre-interview role preparation ---
+// Preparation runs only when explicitly requested. The generated compact
+// profile is stored locally and loaded into the screenshot request context.
+const prepPanel = document.getElementById('interview-prep-panel');
+const openPrepBtn = document.getElementById('open-prep-btn');
+const closePrepBtn = document.getElementById('close-prep-btn');
+const jobDescriptionInput = document.getElementById('job-description');
+const focusAreasInput = document.getElementById('focus-areas');
+const prepareProfileBtn = document.getElementById('prepare-profile-btn');
+const clearProfileBtn = document.getElementById('clear-profile-btn');
+const profileStatus = document.getElementById('profile-status');
+const profilePreview = document.getElementById('profile-preview');
+
+function showInterviewProfile(profile) {
+  profilePreview.textContent = profile || '';
+  profileStatus.textContent = profile
+    ? 'Prepared profile is active for screenshot answers.'
+    : 'No prepared profile loaded. Screenshot answers use the default instructions.';
+}
+
+openPrepBtn.addEventListener('click', () => {
+  prepPanel.hidden = false;
+});
+
+closePrepBtn.addEventListener('click', () => {
+  prepPanel.hidden = true;
+});
+
+window.overlayAPI.getInterviewProfile().then((result) => {
+  if (result?.ok) showInterviewProfile(result.profile);
+}).catch((error) => {
+  profileStatus.textContent = 'Could not load saved profile: ' + error.message;
+});
+
+prepareProfileBtn.addEventListener('click', async () => {
+  const jobDescription = jobDescriptionInput.value.trim();
+  const focusAreas = focusAreasInput.value.trim();
+  if (!jobDescription) {
+    profileStatus.textContent = 'Paste the job description first.';
+    return;
+  }
+
+  prepareProfileBtn.disabled = true;
+  clearProfileBtn.disabled = true;
+  profileStatus.textContent = 'Analyzing the role and matching it to your local CV…';
+  profilePreview.textContent = '';
+
+  try {
+    const result = await window.overlayAPI.prepareInterviewProfile(jobDescription, focusAreas);
+    if (!result.ok) throw new Error(result.error);
+    showInterviewProfile(result.profile);
+  } catch (error) {
+    profileStatus.textContent = 'Preparation failed: ' + error.message;
+  } finally {
+    prepareProfileBtn.disabled = false;
+    clearProfileBtn.disabled = false;
+  }
+});
+
+clearProfileBtn.addEventListener('click', async () => {
+  clearProfileBtn.disabled = true;
+  try {
+    const result = await window.overlayAPI.clearInterviewProfile();
+    if (!result.ok) throw new Error(result.error);
+    showInterviewProfile('');
+  } catch (error) {
+    profileStatus.textContent = 'Could not clear profile: ' + error.message;
+  } finally {
+    clearProfileBtn.disabled = false;
+  }
+});
+
+
 // --- Clear conversation ---
 
 document.getElementById('clear-btn').addEventListener('click', async () => {
