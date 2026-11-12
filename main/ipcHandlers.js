@@ -254,9 +254,10 @@ ipcMain.handle(
 
       const geminiStartedAt = Date.now();
 
+      await interviewProfileReady;
       const preparedProfile = interviewProfile.getInterviewProfile();
       const screenSystemInstruction = preparedProfile
-        ? SYSTEM_INSTRUCTION + '\n\nPrepared interview context (use as role/candidate context; CV evidence remains authoritative):\n' + preparedProfile
+        ? 'You are my real-time interview assistant. Read the screenshot and produce a concise, natural, technically accurate answer I can say aloud. Ground candidate claims in the prepared profile; never invent experience. Match the role and evaluation priorities described below. Output only the answer I should speak.\\n\\nPREPARED INTERVIEW CONTEXT:\\n' + preparedProfile
         : SYSTEM_INSTRUCTION;
 
       const { text } = await geminiClient.query({
