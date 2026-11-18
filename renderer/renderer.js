@@ -261,6 +261,150 @@ async function handleReadScreen() {
 readScreenBtn.addEventListener('click', handleReadScreen);
 window.overlayAPI.onTriggerReadScreen(handleReadScreen);
 
+// --- Isolated live-coding workflow (Ctrl+I) ---
+
+const liveCodingDialog = document.getElementById('live-coding-dialog');
+const liveCodingStatus = document.getElementById('live-coding-status');
+const liveCodingInstructions = document.getElementById('live-coding-instructions');
+const liveCodingSource = document.getElementById('live-coding-source');
+const liveCodingCompleteConfirmation = document.getElementById('live-coding-complete-confirmation');
+const liveCodingCaptureBtn = document.getElementById('retry-live-coding-capture-btn');
+const liveCodingGenerateBtn = document.getElementById('generate-live-coding-patch-btn');
+const liveCodingCopyBtn = document.getElementById('copy-live-coding-code-btn');
+const liveCodingReview = document.getElementById('live-coding-review');
+const liveCodingOutput = document.getElementById('live-coding-output');
+let liveCodingResult = null;
+let liveCodingCaptureTruncated = false;
+
+async function captureLiveCodingSource() {
+  liveCodingStatus.textContent = 'Reading the focused window through read-only accessibility…';
+  liveCodingCaptureBtn.disabled = true;
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCopyBtn.hidden = true;
+  liveCodingReview.hidden = true;
+  liveCodingInstructions.value = '';
+  liveCodingSource.value = '';
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingResult = null;
+  liveCodingCaptureTruncated = false;
+
+  let result;
+  try {
+    result = await window.overlayAPI.captureLiveCodingWindow();
+  } catch (error) {
+    liveCodingStatus.textContent = `Capture failed: ${error.message || 'Accessibility reader error.'}`;
+    liveCodingCaptureBtn.disabled = false;
+    return;
+  }
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Capture failed: ${result.error}`;
+    liveCodingCaptureBtn.disabled = false;
+    return;
+  }
+
+  liveCodingInstructions.value = result.instructions || '';
+  liveCodingSource.value = result.code || '';
+  liveCodingCaptureTruncated = Boolean(result.truncated);
+  const flags = [];
+  if (result.truncated) flags.push('Accessibility text was truncated at the capture limit.');
+  if (!result.instructions) flags.push('No text was found on the left side.');
+  if (!result.code) flags.push('No text was found on the right side.');
+  liveCodingStatus.textContent = `Captured ${result.instructions.length.toLocaleString()} instruction characters and ${result.code.length.toLocaleString()} code characters from ${result.candidateCount} accessible text controls. This editor’s off-screen coverage has not been verified.`;
+  if (flags.length) liveCodingStatus.textContent += `\n${flags.join(' ')}`;
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCaptureBtn.disabled = false;
+}
+
+liveCodingCompleteConfirmation.addEventListener('change', () => {
+  liveCodingGenerateBtn.disabled = !liveCodingCompleteConfirmation.checked ||
+    !liveCodingInstructions.value.trim() || !liveCodingSource.value.trim() || liveCodingCaptureTruncated;
+});
+
+function renderLiveCodingCode(result) {
+  const changed = new Set(result.changedLines || []);
+  const assumed = new Set(result.assumedLines || []);
+  const fragment = document.createDocumentFragment();
+  const lines = String(result.code).split('\n');
+  lines.forEach((line, index) => {
+    const row = document.createElement('div');
+    row.className = 'live-code-line';
+    if (assumed.has(index)) row.classList.add('assumed');
+    else if (changed.has(index)) row.classList.add('changed');
+    const number = document.createElement('span');
+    number.className = 'live-code-number';
+    number.textContent = String(index + 1);
+    const content = document.createElement('span');
+    content.className = 'live-code-text';
+    content.textContent = line || ' ';
+    row.append(number, content);
+    fragment.appendChild(row);
+  });
+  liveCodingOutput.replaceChildren(fragment);
+}
+
+async function startLiveCoding() {
+  if (!liveCodingDialog.open) liveCodingDialog.showModal();
+  await captureLiveCodingSource();
+}
+
+liveCodingCaptureBtn.addEventListener('click', captureLiveCodingSource);
+document.getElementById('close-live-coding-btn').addEventListener('click', () => liveCodingDialog.close());
+window.overlayAPI.onTriggerLiveCoding(startLiveCoding);
+
+liveCodingGenerateBtn.addEventListener('click', async () => {
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCaptureBtn.disabled = true;
+  liveCodingStatus.textContent = 'Gemini is analyzing the instruction and preparing a minimal patch…';
+  liveCodingReview.hidden = true;
+  liveCodingCopyBtn.hidden = true;
+  let result;
+  try {
+    result = await window.overlayAPI.generateLiveCodingPatch({
+      instructions: liveCodingInstructions.value,
+      code: liveCodingSource.value,
+    });
+  } catch (error) {
+    liveCodingStatus.textContent = `Patch failed safely; the captured source was not changed. ${error.message || 'Gemini request failed.'}`;
+    liveCodingCaptureBtn.disabled = false;
+    liveCodingGenerateBtn.disabled = false;
+    return;
+  }
+  liveCodingCaptureBtn.disabled = false;
+  liveCodingGenerateBtn.disabled = false;
+
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Patch failed safely; the captured source was not changed. ${result.error}`;
+    return;
+  }
+  if (result.needsMoreSource) {
+    const concerns = [...(result.sourceConcerns || []), ...(result.assumptions || [])];
+    liveCodingStatus.textContent = `No patch was applied. Gemini needs more source: ${result.summary}`;
+    document.getElementById('live-coding-summary').textContent = 'Capture more source and retry';
+    document.getElementById('live-coding-notes').textContent = concerns.join('\n');
+    liveCodingReview.hidden = false;
+    return;
+  }
+
+  liveCodingResult = result;
+  renderLiveCodingCode(result);
+  document.getElementById('live-coding-summary').textContent = result.summary;
+  const notes = [...(result.sourceConcerns || []), ...(result.assumptions || [])];
+  document.getElementById('live-coding-notes').textContent = notes.join('\n');
+  liveCodingReview.hidden = false;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingStatus.textContent = `Patch applied to the captured text. ${result.changedLines.length} changed line(s), ${result.assumedLines.length} inferred line(s). No tests were run.`;
+});
+
+liveCodingCopyBtn.addEventListener('click', async () => {
+  if (!liveCodingResult) return;
+  try {
+    const result = await window.overlayAPI.copyLiveCodingCode(liveCodingResult.code);
+    liveCodingStatus.textContent = result.ok ? 'Full assembled code copied to clipboard.' : 'Could not copy the assembled code.';
+  } catch (error) {
+    liveCodingStatus.textContent = `Could not copy the assembled code: ${error.message || 'clipboard error.'}`;
+  }
+});
+
 // --- Voice input (push-to-toggle: press to start, press again to stop+send) ---
 // True "hold to talk" isn't reliable with global OS hotkeys (no keyup event
 // available), so this uses toggle semantics instead — press once to start
