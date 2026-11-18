@@ -65,7 +65,7 @@
           <button id="close-live-coding-btn" type="button" aria-label="Close">×</button>
         </header>
         <div id="live-coding-status" role="status">Waiting to capture the focused window…</div>
-        <p id="live-coding-capture-note">The capture does not move focus, scroll, type, select text, or use the clipboard. Off-screen completeness must still be checked for this editor.</p>
+        <p id="live-coding-capture-note">Accessibility capture does not move focus, scroll, type, select text, or use the clipboard. If it cannot read the editor, collect overlapping screenshots as a fallback.</p>
         <label class="live-coding-confirm"><input id="live-coding-complete-confirmation" type="checkbox" /> I reviewed the capture and believe it includes the full instruction and source, including off-screen code.</label>
         <div class="live-coding-source-grid">
           <label>Instruction text <textarea id="live-coding-instructions" readonly spellcheck="false"></textarea></label>
@@ -76,6 +76,15 @@
           <button id="generate-live-coding-patch-btn" type="button" disabled>Generate minimal patch</button>
           <button id="copy-live-coding-code-btn" type="button" hidden>Copy full code</button>
         </div>
+        <section id="live-coding-screenshot-controls" hidden>
+          <p>Screenshot fallback: start capture, then scroll about 60–70% of the code viewport so screenshots overlap. Press <b>Ctrl+I</b> for each viewport; the overlay hides after each capture. After the final viewport, press <b>Ctrl+Shift+Space</b> to reopen this panel and reconstruct.</p>
+          <div class="live-coding-actions">
+            <button id="start-live-coding-screenshots-btn" type="button">Start screenshot fallback</button>
+            <button id="capture-live-coding-viewport-btn" type="button" hidden>Capture viewport and hide</button>
+            <span id="live-coding-screenshot-count">0 screenshots</span>
+            <button id="reconstruct-live-coding-screenshots-btn" type="button" disabled>Reconstruct screenshots</button>
+          </div>
+        </section>
         <div id="live-coding-review" hidden>
           <h3 id="live-coding-summary"></h3>
           <div id="live-coding-notes"></div>
