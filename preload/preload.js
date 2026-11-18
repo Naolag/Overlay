@@ -23,8 +23,11 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   endJobSession: () => ipcRenderer.invoke('end-job-session'),
   retrySessionSave: () => ipcRenderer.invoke('retry-job-session-save'),
   captureLiveCodingWindow: () => ipcRenderer.invoke('live-coding-capture'),
+  captureLiveCodingScreenshot: () => ipcRenderer.invoke('live-coding-capture-screenshot'),
+  reconstructLiveCodingScreenshots: (screenshots) => ipcRenderer.invoke('live-coding-reconstruct-screenshots', screenshots),
   generateLiveCodingPatch: (payload) => ipcRenderer.invoke('live-coding-generate-patch', payload),
   copyLiveCodingCode: (code) => ipcRenderer.invoke('live-coding-copy-result', code),
+  hideLiveCodingOverlay: () => ipcRenderer.invoke('live-coding-hide-overlay'),
 
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
