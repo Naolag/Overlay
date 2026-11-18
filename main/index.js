@@ -155,6 +155,13 @@ session.defaultSession.setDisplayMediaRequestHandler(
       overlayWindow.show();
       overlayWindow.webContents.send('trigger-read-screen');
     },
+    onStartLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      // Keep the interview/editor window focused while the read-only UIA
+      // capture starts; the overlay can be clicked after capture completes.
+      overlayWindow.showInactive();
+      overlayWindow.webContents.send('trigger-live-coding');
+    },
     onToggleVoice: () => {
       if (!overlayWindow || overlayWindow.isDestroyed()) return;
       overlayWindow.show();
@@ -185,3 +192,4 @@ app.on('will-quit', () => {
 app.on('window-all-closed', () => {
   app.quit();
 });
+
