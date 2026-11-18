@@ -70,8 +70,9 @@ function readWindowAccessibility(hwnd) {
   }
 
   return new Promise((resolve, reject) => {
+    const encodedScript = Buffer.from(POWERSHELL_SCRIPT, 'utf16le').toString('base64');
     const child = spawn('powershell.exe', [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', '-',
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript,
     ], {
       windowsHide: true,
       env: { ...process.env, OVERLAY_TARGET_HWND: String(hwnd) },
@@ -98,6 +99,7 @@ function readWindowAccessibility(hwnd) {
       }
       try {
         const encoded = stdout.trim().split(/\r?\n/).pop();
+        if (!encoded) throw new Error(stderr.trim() || 'PowerShell returned no accessibility payload.');
         const snapshot = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
         if (!Array.isArray(snapshot.elements)) throw new Error('Accessibility response had no element list.');
         resolve(snapshot);
@@ -105,7 +107,6 @@ function readWindowAccessibility(hwnd) {
         reject(new Error(`Could not parse accessibility text: ${error.message}`));
       }
     });
-    child.stdin.end(POWERSHELL_SCRIPT, 'utf8');
   });
 }
 
