@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   retryJobContext: () => ipcRenderer.invoke('retry-job-context'),
   endJobSession: () => ipcRenderer.invoke('end-job-session'),
   retrySessionSave: () => ipcRenderer.invoke('retry-job-session-save'),
+  captureLiveCodingWindow: () => ipcRenderer.invoke('live-coding-capture'),
+  generateLiveCodingPatch: (payload) => ipcRenderer.invoke('live-coding-generate-patch', payload),
+  copyLiveCodingCode: (code) => ipcRenderer.invoke('live-coding-copy-result', code),
 
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
@@ -43,6 +46,9 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   // pressed — renderer runs the same code path a button click would.
   onTriggerReadScreen: (callback) => {
     ipcRenderer.on('trigger-read-screen', () => callback());
+  },
+  onTriggerLiveCoding: (callback) => {
+    ipcRenderer.on('trigger-live-coding', () => callback());
   },
   onTriggerToggleVoice: (callback) => {
     ipcRenderer.on('trigger-toggle-voice', () => callback());
