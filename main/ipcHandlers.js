@@ -1,13 +1,19 @@
-const { ipcMain, desktopCapturer, app, clipboard } = require('electron');
+const { ipcMain, desktopCapturer, app, clipboard, BrowserWindow } = require('electron');
 const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
-const { captureWindowSourcePart, } = require('./screenCapture');
+const { captureWindowSourcePart, captureLiveCodingScreenshotPart } = require('./screenCapture');
 const { getLastExternalWindowHandle, } = require('./activeWindow');
 const lessonsStore = require('./lessonsStore');
 const interviewSession = require('../services/interviewSession');
 const interviewPrompts = require('../services/interviewPrompts');
 const { readWindowAccessibility, buildPanelText } = require('../services/windowsAccessibilityReader');
-const { LIVE_CODING_SYSTEM_PROMPT, parsePatchResponse, applyPatch } = require('../services/liveCodingPatch');
+const {
+  LIVE_CODING_SYSTEM_PROMPT,
+  SCREENSHOT_RECONSTRUCTION_PROMPT,
+  parsePatchResponse,
+  parseScreenshotReconstruction,
+  applyPatch,
+} = require('../services/liveCodingPatch');
 const cv_prompt=require('../cv');
 const ffmpegPath = require('ffmpeg-static');
 const { spawn } = require('child_process');
@@ -72,6 +78,11 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
     clipboard.writeText(code);
     return { ok: true };
   });
+  ipcMain.handle('live-coding-hide-overlay', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) win.hide();
+    return { ok: true };
+  });
 
   // Separate, read-only live-coding capture path. It does not share history,
   // prompts, or state with the existing chat and screenshot-answer flows.
@@ -98,6 +109,51 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
     }
   });
 
+  ipcMain.handle('live-coding-capture-screenshot', async () => {
+    try {
+      const hwnd = getLastExternalWindowHandle();
+      if (!hwnd) throw new Error('No target window found. Focus the challenge window and retry the screenshot.');
+      const targetHandle = BigInt(`0x${hwnd}`).toString(10);
+      return { ok: true, ...(await captureLiveCodingScreenshotPart(targetHandle)) };
+    } catch (error) {
+      console.error('[live-coding-screenshot] failed:', error);
+      return { ok: false, error: error.message || 'Could not capture the target window.' };
+    }
+  });
+
+  ipcMain.handle('live-coding-reconstruct-screenshots', async (_event, screenshots = []) => {
+    try {
+      if (!Array.isArray(screenshots) || screenshots.length < 1 || screenshots.length > 20) {
+        throw new Error('Capture between 1 and 20 viewport screenshots before reconstruction.');
+      }
+      const imageParts = screenshots.map((item) => item?.imagePart).filter((part) =>
+        part?.inline_data?.mime_type === 'image/jpeg' && typeof part.inline_data.data === 'string'
+      );
+      if (imageParts.length !== screenshots.length) throw new Error('One or more screenshot captures are invalid. Capture them again.');
+      const totalBytes = imageParts.reduce((total, part) => total + Math.ceil(part.inline_data.data.length * 3 / 4), 0);
+      if (totalBytes > 12 * 1024 * 1024) throw new Error('The screenshot set is too large. Use fewer, overlapping viewport captures.');
+
+      const { text } = await geminiClient.query({
+        history: [],
+        systemInstruction: SCREENSHOT_RECONSTRUCTION_PROMPT,
+        generationConfig: { responseMimeType: 'application/json' },
+        parts: [
+          { text: `Transcribe these ${imageParts.length} screenshots in capture order. The images overlap where the code was scrolled. Produce only the required reconstruction JSON.` },
+          ...imageParts,
+        ],
+      });
+      const reconstruction = parseScreenshotReconstruction(text);
+      return {
+        ok: true,
+        needsMoreScreenshots: reconstruction.status !== 'ready',
+        ...reconstruction,
+      };
+    } catch (error) {
+      console.error('[live-coding-reconstruct-screenshots] failed:', error);
+      return { ok: false, error: error.message || 'Could not reconstruct the screenshots.' };
+    }
+  });
+
   ipcMain.handle('live-coding-generate-patch', async (_event, payload = {}) => {
     try {
       const instructions = String(payload.instructions || '').trim();
@@ -107,12 +163,21 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
       if (code.length > 160_000 || instructions.length > 60_000) {
         throw new Error('The captured text is too large for one patch request. Reduce unrelated page text and retry.');
       }
+      const screenshotParts = Array.isArray(payload.screenshots)
+        ? payload.screenshots.map((item) => item?.imagePart).filter((part) =>
+          part?.inline_data?.mime_type === 'image/jpeg' && typeof part.inline_data.data === 'string'
+        )
+        : [];
+      if (screenshotParts.length > 20) throw new Error('Too many screenshot references; keep the capture set to 20 or fewer.');
 
       const { text } = await geminiClient.query({
         history: [],
         systemInstruction: LIVE_CODING_SYSTEM_PROMPT,
         generationConfig: { responseMimeType: 'application/json' },
-        parts: [{ text: `CAPTURE LIMITATION: These are Windows accessibility text ranges separated by their screen position. The editor has not been tested yet, so full off-screen source coverage is unverified. Do not assume unseen source. If the provided instruction or source appears incomplete or cannot support a precise patch, return status "need_more_source".\n\nTASK INSTRUCTIONS (left side of target window):\n${instructions}\n\nSOURCE CODE (right-side editor accessibility text):\n${code}\n\nReturn the minimal exact-text edits in the required JSON format.` }],
+        parts: [
+          { text: `CAPTURE LIMITATION: Full off-screen source coverage is unverified unless the capture preview was checked. Do not assume unseen source. If the provided instruction or source appears incomplete or cannot support a precise patch, return status "need_more_source". If screenshot references are present, use them only to cross-check the supplied text and identify uncertain or missing source; do not invent code.\n\nTASK INSTRUCTIONS (left side of target window):\n${instructions}\n\nSOURCE CODE (right-side editor accessibility text or screenshot reconstruction):\n${code}\n\nReturn the minimal exact-text edits in the required JSON format.` },
+          ...screenshotParts,
+        ],
       });
       const patch = parsePatchResponse(text);
       if (patch.status !== 'ready') {
