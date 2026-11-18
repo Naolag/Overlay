@@ -104,8 +104,35 @@ async function captureWindowSourcePart(sourceId) {
   return imageToGeminiPart(source.thumbnail, 'Active window');
 }
 
+// Higher-resolution capture reserved for live-coding fallback. Existing
+// screen-answer capture keeps its smaller fast-mode dimensions and settings.
+async function captureLiveCodingScreenshotPart(windowHandleDecimal) {
+  if (!windowHandleDecimal) throw new Error('A target window handle is required.');
+  const sources = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: { width: 1920, height: 1200 },
+  });
+  const source = sources.find((item) => {
+    const match = item.id.match(/^window:(\d+):/);
+    return match && match[1] === String(windowHandleDecimal);
+  });
+  if (!source || source.thumbnail.isEmpty()) {
+    throw new Error('Could not capture the target window. Keep the interview window open and try again.');
+  }
+  const image = source.thumbnail;
+  const size = image.getSize();
+  const jpeg = image.toJPEG(92);
+  return {
+    imagePart: { inline_data: { mime_type: 'image/jpeg', data: jpeg.toString('base64') } },
+    width: size.width,
+    height: size.height,
+  };
+}
+
 module.exports = {
   captureScreenshotPart,
   captureWindowSourcePart,
+  captureLiveCodingScreenshotPart,
 };
+
 
