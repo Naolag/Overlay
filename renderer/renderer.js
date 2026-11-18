@@ -70,6 +70,119 @@ async function handleSend(event) {
 
 chatForm.addEventListener('submit', handleSend);
 
+// --- Optional interview job session ---
+
+const jobSessionDialog = document.getElementById('job-session-dialog');
+const jobSessionForm = document.getElementById('job-session-form');
+const jobSessionStatus = document.getElementById('job-session-status');
+const startJobSessionBtn = document.getElementById('start-job-session-btn');
+const endJobSessionBtn = document.getElementById('end-job-session-btn');
+const retryJobContextBtn = document.getElementById('retry-job-context-btn');
+const retrySessionSaveBtn = document.getElementById('retry-session-save-btn');
+const jobSessionFormError = document.getElementById('job-session-form-error');
+const confirmJobSessionBtn = document.getElementById('confirm-job-session-btn');
+
+function updateJobSessionUI(status) {
+  const active = Boolean(status?.active);
+  jobSessionStatus.textContent = active
+    ? `${status.jobName} · ${status.questionCount} saved question(s)`
+    : 'Job session off';
+  startJobSessionBtn.hidden = active;
+  endJobSessionBtn.hidden = !active;
+  retryJobContextBtn.hidden = !(
+    active && status.options?.useContext && !status.contextReady
+  );
+}
+
+startJobSessionBtn.addEventListener('click', () => {
+  jobSessionFormError.textContent = '';
+  jobSessionDialog.showModal();
+});
+
+document.getElementById('cancel-job-session-btn').addEventListener('click', () => {
+  jobSessionDialog.close();
+});
+
+jobSessionForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  jobSessionFormError.textContent = '';
+  confirmJobSessionBtn.disabled = true;
+  confirmJobSessionBtn.textContent = 'Preparing…';
+
+  const payload = {
+    jobName: document.getElementById('job-name-input').value.trim(),
+    jobDescription: document.getElementById('job-description-input').value,
+    requiredSkills: document.getElementById('required-skills-input').value,
+    options: {
+      useContext: document.getElementById('job-context-enabled').checked,
+      transcribeQuestion: document.getElementById('question-transcription-enabled').checked,
+    },
+  };
+
+  try {
+    const result = await window.overlayAPI.startJobSession(payload);
+    if (!result.ok) throw new Error(result.error);
+    jobSessionDialog.close();
+    updateJobSessionUI(result.status);
+    appendEntry(
+      'System',
+      result.contextError
+        ? `⚠ Job session started, but compact context could not be created: ${result.contextError}. The interview still works without context; retry it from the session bar.`
+        : `Job session started. Files are being saved under Documents\\Overlay Job Sessions${result.budget ? ` · context ${result.budget.tokenCount}/${result.budget.tokenLimit} tokens` : ''}.`
+    );
+  } catch (err) {
+    jobSessionFormError.textContent = err.message || 'Could not start session.';
+  } finally {
+    confirmJobSessionBtn.disabled = false;
+    confirmJobSessionBtn.textContent = 'Start session';
+  }
+});
+
+retryJobContextBtn.addEventListener('click', async () => {
+  retryJobContextBtn.disabled = true;
+  retryJobContextBtn.textContent = 'Retrying…';
+  const result = await window.overlayAPI.retryJobContext();
+  if (result.ok) {
+    updateJobSessionUI(result.status);
+    appendEntry('System', `Job context saved (${result.budget.tokenCount}/${result.budget.tokenLimit} tokens).`);
+  } else {
+    appendEntry('System', `⚠ Context retry failed: ${result.error}`, true);
+  }
+  retryJobContextBtn.disabled = false;
+  retryJobContextBtn.textContent = 'Retry context';
+});
+
+endJobSessionBtn.addEventListener('click', async () => {
+  endJobSessionBtn.disabled = true;
+  const result = await window.overlayAPI.endJobSession();
+  if (result.ok) {
+    updateJobSessionUI({ active: false });
+    appendEntry('System', `Job session saved: ${result.directory}`);
+  } else {
+    appendEntry('System', `⚠ Could not finish job session: ${result.error}`, true);
+  }
+  endJobSessionBtn.disabled = false;
+});
+
+retrySessionSaveBtn.addEventListener('click', async () => {
+  retrySessionSaveBtn.disabled = true;
+  const result = await window.overlayAPI.retrySessionSave();
+  if (result.ok) {
+    retrySessionSaveBtn.hidden = true;
+    appendEntry('System', 'Session files saved successfully.');
+  } else {
+    appendEntry('System', `⚠ Session save retry failed: ${result.error}`, true);
+  }
+  retrySessionSaveBtn.disabled = false;
+});
+
+window.overlayAPI.onJobSessionError(({ message }) => {
+  appendEntry('System', `⚠ ${message} The interview response flow continues.`, true);
+  retrySessionSaveBtn.hidden = false;
+});
+
+window.overlayAPI.getJobSessionStatus().then(updateJobSessionUI);
+
 // Enter sends, Shift+Enter adds a newline
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -140,6 +253,8 @@ async function handleReadScreen() {
   } else {
     appendEntry('Gemini', result.error, true);
   }
+  // Refresh status after rendering the answer; this must not delay the live answer.
+  window.overlayAPI.getJobSessionStatus().then(updateJobSessionUI);
   readScreenBtn.disabled = false;
 }
 
@@ -676,3 +791,4 @@ document.getElementById('view-lessons-btn').addEventListener('click', async () =
     .join('\n');
   appendEntry('System', `${result.lessons.length} saved lesson(s):\n${listText}\n\n(Click a specific one to review — not built yet; for now check data/lessons.json directly.)`);
 });
+

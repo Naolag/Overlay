@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   summarizeRecording: (base64Audio, mimeType, label) =>
     ipcRenderer.invoke('gemini-summarize-recording', { base64Audio, mimeType, label }),
   getAllLessons: () => ipcRenderer.invoke('get-all-lessons'),
+  getJobSessionStatus: () => ipcRenderer.invoke('get-job-session-status'),
+  startJobSession: (session) => ipcRenderer.invoke('start-job-session', session),
+  retryJobContext: () => ipcRenderer.invoke('retry-job-context'),
+  endJobSession: () => ipcRenderer.invoke('end-job-session'),
+  retrySessionSave: () => ipcRenderer.invoke('retry-job-session-save'),
 
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
@@ -45,6 +50,10 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   onToggleScreenRecording: (callback) => {
   ipcRenderer.on('trigger-toggle-screen-recording', () => callback());
 },
+  onJobSessionError: (callback) => {
+    ipcRenderer.on('job-session-error', (_event, data) => callback(data));
+  },
 
 
 });
+

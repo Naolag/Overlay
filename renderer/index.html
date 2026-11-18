@@ -21,6 +21,39 @@
       Ctrl+Shift+R — read screen &nbsp;|&nbsp; Ctrl+Shift+V — voice
     </div>
 
+    <div id="job-session-bar">
+      <span id="job-session-status">Job session off</span>
+      <button id="start-job-session-btn" type="button">Start job session</button>
+      <button id="retry-job-context-btn" type="button" hidden>Retry context</button>
+      <button id="retry-session-save-btn" type="button" hidden>Retry save</button>
+      <button id="end-job-session-btn" type="button" hidden>End session</button>
+    </div>
+
+    <dialog id="job-session-dialog">
+      <form id="job-session-form">
+        <h2>Start a job session</h2>
+        <label for="job-name-input">Job name</label>
+        <input id="job-name-input" required maxlength="120" />
+        <label for="job-description-input">Job description / requirements</label>
+        <textarea id="job-description-input" rows="6" required></textarea>
+        <label for="required-skills-input">Required skills (one per line)</label>
+        <textarea id="required-skills-input" rows="4" required></textarea>
+        <label class="session-option">
+          <input id="job-context-enabled" type="checkbox" checked />
+          Include compact job context in Gemini requests (max 250 tokens)
+        </label>
+        <label class="session-option">
+          <input id="question-transcription-enabled" type="checkbox" checked />
+          Ask Gemini to transcribe the question in the same request
+        </label>
+        <div id="job-session-form-error" role="alert"></div>
+        <div class="dialog-actions">
+          <button id="cancel-job-session-btn" type="button">Cancel</button>
+          <button id="confirm-job-session-btn" type="submit">Start session</button>
+        </div>
+      </form>
+    </dialog>
+
     <div id="chat-log"></div>
 
     <form id="chat-form">
@@ -42,3 +75,4 @@
   <script src="renderer.js"></script>
 </body>
 </html>
+

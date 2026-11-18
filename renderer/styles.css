@@ -89,6 +89,102 @@ html, body {
   flex-shrink: 0;
 }
 
+#job-session-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+#job-session-status {
+  flex: 1;
+  min-width: 0;
+  color: #aaa;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#job-session-bar button,
+.dialog-actions button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eee;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+#job-session-bar button:hover,
+.dialog-actions button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+#job-session-dialog {
+  width: min(360px, calc(100vw - 48px));
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  padding: 16px;
+  color: #eee;
+  background: #1b1b20;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+#job-session-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+#job-session-form {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+}
+
+#job-session-form h2 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+
+#job-session-form input:not([type="checkbox"]),
+#job-session-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  color: #eee;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  padding: 7px;
+  font: inherit;
+}
+
+.session-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+#job-session-form-error {
+  color: #fca5a5;
+  white-space: pre-wrap;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 5px;
+}
+
 #chat-log {
   flex: 1;
   overflow-y: auto;
@@ -227,3 +323,4 @@ html, body {
   outline: none;
   border-color: rgba(196, 181, 253, 0.5);
 }
+

@@ -4,6 +4,8 @@ const conversationState = require('./conversationState');
 const { captureWindowSourcePart, } = require('./screenCapture');
 const { getLastExternalWindowHandle, } = require('./activeWindow');
 const lessonsStore = require('./lessonsStore');
+const interviewSession = require('./interviewSession');
+const interviewPrompts = require('../services/interviewPrompts');
 const cv_prompt=require('../cv');
 const ffmpegPath = require('ffmpeg-static');
 const { spawn } = require('child_process');
@@ -21,11 +23,120 @@ const SYSTEM_INSTRUCTION =
   'words like "on-call" or "triage" appear alone — always interpret those as ' +
   'software incident-response terms. Keep answers concise and practical.';
 
+async function buildSessionContext(details) {
+  const budgetText = [
+    `${interviewPrompts.PRIMARY_SCREEN_PROMPT}\n\nJob context:\n`,
+    details.options?.transcribeQuestion
+      ? interviewPrompts.QUESTION_TRANSCRIPTION_INSTRUCTION
+      : '',
+  ].filter(Boolean).join('\n');
+  const promptAndSystemTokens = await geminiClient.countTokens({
+    parts: [{ text: budgetText }],
+    systemInstruction: SYSTEM_INSTRUCTION,
+  });
+  const tokenLimit = interviewPrompts.getJobContextTokenLimit(promptAndSystemTokens);
+  const compacted = await interviewPrompts.compactJobContext({
+    geminiClient,
+    jobName: details.jobName,
+    jobDescription: details.jobDescription,
+    requiredSkills: details.requiredSkills,
+    tokenLimit,
+  });
+  await interviewSession.setContext({
+    text: compacted.text,
+    tokenLimit,
+    tokenCount: compacted.tokenCount,
+  });
+  return { tokenLimit, tokenCount: compacted.tokenCount };
+}
+
+function parseQuestionAndAnswer(text) {
+  const question = text.match(/^\s*\*{0,2}QUESTION\*{0,2}:\s*([\s\S]*?)\s*\n\s*\*{0,2}ANSWER\*{0,2}:/im)?.[1]?.trim() || null;
+  const answer = text.match(/(?:^|\n)\s*\*{0,2}ANSWER\*{0,2}:\s*([\s\S]*?)\s*$/i)?.[1]?.trim();
+  if (answer !== undefined) return { question, answer };
+  if (/\*{0,2}QUESTION\*{0,2}:/i.test(text)) {
+    return { question: null, answer: '', unparsed: true };
+  }
+  return { question: null, answer: String(text || '').trim() };
+}
+
 /**
  * Central place to see every ipcMain.handle registration in the app.
  */
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
+
+  ipcMain.handle('get-job-session-status', () => interviewSession.getStatus());
+
+  ipcMain.handle('start-job-session', async (_event, payload) => {
+    try {
+      if (!String(payload?.jobName || '').trim()) {
+        throw new Error('Enter a job name.');
+      }
+      if (!String(payload?.jobDescription || '').trim()) {
+        throw new Error('Enter the job description or requirements.');
+      }
+      if (!String(payload?.requiredSkills || '').trim()) {
+        throw new Error('Enter the required skills.');
+      }
+      const status = await interviewSession.startSession({
+        documentsPath: app.getPath('documents'),
+        jobName: payload.jobName,
+        jobDescription: payload.jobDescription,
+        requiredSkills: payload.requiredSkills,
+        options: payload.options,
+        primaryPrompt: interviewPrompts.PRIMARY_SCREEN_PROMPT,
+        model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      });
+
+      if (!payload.options?.useContext) {
+        return { ok: true, status };
+      }
+
+      try {
+        const budget = await buildSessionContext(payload);
+        return { ok: true, status: interviewSession.getStatus(), budget };
+      } catch (contextError) {
+        console.error('[job-session] context compaction failed:', contextError);
+        return {
+          ok: true,
+          status: interviewSession.getStatus(),
+          contextError: contextError.message || 'Context compaction failed',
+        };
+      }
+    } catch (err) {
+      console.error('[job-session] start failed:', err);
+      return { ok: false, error: err.message || 'Could not start job session.' };
+    }
+  });
+
+  ipcMain.handle('retry-job-context', async () => {
+    try {
+      const details = interviewSession.getJobDetails();
+      if (!details) throw new Error('No job session is active.');
+      if (!details.options.useContext) throw new Error('Job context is disabled for this session.');
+      const budget = await buildSessionContext(details);
+      return { ok: true, status: interviewSession.getStatus(), budget };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not create job context.' };
+    }
+  });
+
+  ipcMain.handle('end-job-session', async () => {
+    try {
+      return { ok: true, ...await interviewSession.endSession() };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not finish job session.' };
+    }
+  });
+
+  ipcMain.handle('retry-job-session-save', async () => {
+    try {
+      return await interviewSession.retryPendingWrites();
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not retry session save.' };
+    }
+  });
 
 ipcMain.handle(
   'save-screen-recording',
@@ -181,6 +292,8 @@ ipcMain.handle(
    // Screen recognition — capture the active external application window
   ipcMain.handle('gemini-screen-query', async (event, userPrompt) => {
     const startedAt = Date.now();
+    let sessionQuestion = null;
+    const geminiStartedAt = Date.now();
 
     try {
       const hwnd = getLastExternalWindowHandle();
@@ -214,25 +327,84 @@ ipcMain.handle(
       const imagePart = await captureWindowSourcePart(source.id);
       console.log('[SCREEN] Capture total:', Date.now() - startedAt, 'ms');
 
+      if (interviewSession.getStatus().active) {
+        sessionQuestion = interviewSession.beginQuestion(imagePart.inline_data.data);
+        sessionQuestion?.writePromise.catch((err) => {
+          console.error('[job-session] screenshot save failed:', err);
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('job-session-error', {
+              message: `Could not save screenshot ${sessionQuestion.number}: ${err.message}`,
+            });
+          }
+        });
+      }
+
       const promptText =
         userPrompt && userPrompt.trim()
           ? userPrompt
-          : 'Read this screen and give the optimal answer to the question shown. Be concise, technically accurate, and information-dense.';
+          : interviewPrompts.PRIMARY_SCREEN_PROMPT;
+      const context = interviewSession.getRequestContext();
+      const transcribeQuestion = interviewSession.shouldTranscribeQuestion();
+      const requestParts = [promptText];
+      if (context) requestParts.push(`Job context:\n${context}`);
+      if (transcribeQuestion) {
+        requestParts.push(interviewPrompts.QUESTION_TRANSCRIPTION_INSTRUCTION);
+      }
 
-      const geminiStartedAt = Date.now();
-
-      const { text } = await geminiClient.query({
+      const { text, usageMetadata, modelVersion } = await geminiClient.query({
         history: [],
-        parts: [{ text: promptText }, imagePart],
+        parts: [...requestParts.map((text) => ({ text })), imagePart],
         systemInstruction: SYSTEM_INSTRUCTION,
       });
+
+      const parsed = transcribeQuestion
+        ? parseQuestionAndAnswer(text)
+        : { question: null, answer: text };
+      if (parsed.unparsed) {
+        throw new Error('Gemini response could not be separated into question and spoken answer. Retry the screenshot.');
+      }
 
       console.log('[SCREEN] Gemini request:', Date.now() - geminiStartedAt, 'ms');
       console.log('[SCREEN] Total request:', Date.now() - startedAt, 'ms');
 
-      return { ok: true, text };
+      if (sessionQuestion) {
+        interviewSession.finishQuestion(sessionQuestion, {
+          question: parsed.question,
+          answer: parsed.answer,
+          status: 'answered',
+          latencyMs: Date.now() - geminiStartedAt,
+          inputTokens: usageMetadata?.promptTokenCount,
+          modelVersion,
+        }).catch((err) => {
+          console.error('[job-session] answer save failed:', err);
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('job-session-error', {
+              message: `Could not save answer ${sessionQuestion.number}: ${err.message}`,
+            });
+          }
+        });
+      }
+
+      return { ok: true, text: parsed.answer };
     } catch (err) {
       console.error('[gemini-screen-query] failed:', err);
+
+      if (sessionQuestion) {
+        interviewSession.finishQuestion(sessionQuestion, {
+          question: null,
+          answer: null,
+          status: 'failed',
+          error: err.message || 'Unknown error',
+          latencyMs: Date.now() - geminiStartedAt,
+        }).catch((saveError) => {
+          console.error('[job-session] failed-request save failed:', saveError);
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('job-session-error', {
+              message: `Could not save failed question ${sessionQuestion.number}: ${saveError.message}`,
+            });
+          }
+        });
+      }
 
       return {
         ok: false,
@@ -447,3 +619,4 @@ ipcMain.handle('gemini-summarize-recording', async (event, { base64Audio, mimeTy
 }
 
 module.exports = { registerIpcHandlers };
+
