@@ -1,4 +1,4 @@
-const { ipcMain, desktopCapturer,app } = require('electron');
+const { ipcMain, desktopCapturer, app, clipboard } = require('electron');
 const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
 const { captureWindowSourcePart, } = require('./screenCapture');
@@ -6,6 +6,8 @@ const { getLastExternalWindowHandle, } = require('./activeWindow');
 const lessonsStore = require('./lessonsStore');
 const interviewSession = require('../services/interviewSession');
 const interviewPrompts = require('../services/interviewPrompts');
+const { readWindowAccessibility, buildPanelText } = require('../services/windowsAccessibilityReader');
+const { LIVE_CODING_SYSTEM_PROMPT, parsePatchResponse, applyPatch } = require('../services/liveCodingPatch');
 const cv_prompt=require('../cv');
 const ffmpegPath = require('ffmpeg-static');
 const { spawn } = require('child_process');
@@ -65,6 +67,78 @@ function parseQuestionAndAnswer(text) {
  */
 function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastExposureEvent, resetSelfTest }) {
   ipcMain.handle('get-exclusion-status', () => getExclusionApplied());
+  ipcMain.handle('live-coding-copy-result', (_event, code) => {
+    if (typeof code !== 'string') throw new Error('No assembled code is available to copy.');
+    clipboard.writeText(code);
+    return { ok: true };
+  });
+
+  // Separate, read-only live-coding capture path. It does not share history,
+  // prompts, or state with the existing chat and screenshot-answer flows.
+  ipcMain.handle('live-coding-capture', async () => {
+    try {
+      const hwnd = getLastExternalWindowHandle();
+      if (!hwnd) throw new Error('No target window found. Focus the interview window and press Ctrl+I again.');
+      const targetHandle = BigInt(`0x${hwnd}`).toString(10);
+      const snapshot = await readWindowAccessibility(targetHandle);
+      const panels = buildPanelText(snapshot);
+      if (!panels.instructions && !panels.code) {
+        throw new Error('The target window did not expose readable text through Windows accessibility.');
+      }
+      return {
+        ok: true,
+        ...panels,
+        windowName: hwnd,
+        bounds: snapshot.bounds,
+        truncated: panels.truncated,
+      };
+    } catch (error) {
+      console.error('[live-coding-capture] failed:', error);
+      return { ok: false, error: error.message || 'Could not read the target window.' };
+    }
+  });
+
+  ipcMain.handle('live-coding-generate-patch', async (_event, payload = {}) => {
+    try {
+      const instructions = String(payload.instructions || '').trim();
+      const code = String(payload.code || '');
+      if (!instructions) throw new Error('No instruction text was captured. Retry Ctrl+I or inspect the accessibility capture.');
+      if (!code.trim()) throw new Error('No code text was captured. The editor may not expose its source through accessibility.');
+      if (code.length > 160_000 || instructions.length > 60_000) {
+        throw new Error('The captured text is too large for one patch request. Reduce unrelated page text and retry.');
+      }
+
+      const { text } = await geminiClient.query({
+        history: [],
+        systemInstruction: LIVE_CODING_SYSTEM_PROMPT,
+        generationConfig: { responseMimeType: 'application/json' },
+        parts: [{ text: `CAPTURE LIMITATION: These are Windows accessibility text ranges separated by their screen position. The editor has not been tested yet, so full off-screen source coverage is unverified. Do not assume unseen source. If the provided instruction or source appears incomplete or cannot support a precise patch, return status "need_more_source".\n\nTASK INSTRUCTIONS (left side of target window):\n${instructions}\n\nSOURCE CODE (right-side editor accessibility text):\n${code}\n\nReturn the minimal exact-text edits in the required JSON format.` }],
+      });
+      const patch = parsePatchResponse(text);
+      if (patch.status !== 'ready') {
+        return {
+          ok: true,
+          needsMoreSource: true,
+          summary: patch.summary || 'The available text does not appear sufficient for a safe patch.',
+          assumptions: patch.assumptions,
+          sourceConcerns: patch.sourceConcerns,
+        };
+      }
+      const applied = applyPatch(code, patch.edits);
+      return {
+        ok: true,
+        code: applied.code,
+        changedLines: applied.changedLines,
+        assumedLines: applied.assumedLines,
+        summary: patch.summary || 'Patch applied.',
+        assumptions: patch.assumptions,
+        sourceConcerns: patch.sourceConcerns,
+      };
+    } catch (error) {
+      console.error('[live-coding-generate-patch] failed:', error);
+      return { ok: false, error: error.message || 'Could not generate or apply the patch.' };
+    }
+  });
 
   ipcMain.handle('get-job-session-status', () => interviewSession.getStatus());
 
