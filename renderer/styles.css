@@ -208,6 +208,10 @@ html, body {
 .live-coding-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .live-coding-actions button { background: #292936; color: #eee; border: 1px solid #484858; border-radius: 4px; padding: 6px 8px; font-size: 10px; cursor: pointer; }
 .live-coding-actions button:disabled { opacity: 0.5; cursor: default; }
+#live-coding-screenshot-controls { color: #aaa; font-size: 10px; line-height: 1.35; }
+#live-coding-screenshot-controls[hidden] { display: none; }
+#live-coding-screenshot-controls p { margin: 0 0 5px; }
+#live-coding-screenshot-count { align-self: center; color: #ddd; }
 #live-coding-review { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
 #live-coding-review[hidden] { display: none; }
 #live-coding-summary { margin: 0; font-size: 11px; }
