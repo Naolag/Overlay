@@ -102,17 +102,19 @@ async function startSession({ documentsPath, jobName, jobDescription, requiredSk
 
 async function setContext({ text, tokenLimit, tokenCount }) {
   if (!activeSession) throw new Error('No job session is active.');
-  activeSession.context = String(text || '').trim();
-  activeSession.data.context = {
+  const compactedContext = String(text || '').trim();
+  const contextMetadata = {
     file: 'context.txt',
     tokenLimit: Number.isFinite(tokenLimit) ? tokenLimit : 0,
     tokenCount: Number.isFinite(tokenCount) ? tokenCount : 0,
   };
   await fs.promises.writeFile(
     path.join(activeSession.directory, 'context.txt'),
-    activeSession.context,
+    compactedContext,
     'utf8'
   );
+  activeSession.context = compactedContext;
+  activeSession.data.context = contextMetadata;
   await enqueueWrite(activeSession);
   return getStatus();
 }
