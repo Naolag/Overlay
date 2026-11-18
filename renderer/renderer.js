@@ -273,8 +273,16 @@ const liveCodingGenerateBtn = document.getElementById('generate-live-coding-patc
 const liveCodingCopyBtn = document.getElementById('copy-live-coding-code-btn');
 const liveCodingReview = document.getElementById('live-coding-review');
 const liveCodingOutput = document.getElementById('live-coding-output');
+const liveCodingScreenshotControls = document.getElementById('live-coding-screenshot-controls');
+const startLiveCodingScreenshotsBtn = document.getElementById('start-live-coding-screenshots-btn');
+const captureLiveCodingViewportBtn = document.getElementById('capture-live-coding-viewport-btn');
+const reconstructLiveCodingScreenshotsBtn = document.getElementById('reconstruct-live-coding-screenshots-btn');
+const liveCodingScreenshotCount = document.getElementById('live-coding-screenshot-count');
 let liveCodingResult = null;
 let liveCodingCaptureTruncated = false;
+let liveCodingScreenshotMode = false;
+let liveCodingScreenshotParts = [];
+let liveCodingScreenshotReconstructionReady = false;
 
 async function captureLiveCodingSource() {
   liveCodingStatus.textContent = 'Reading the focused window through read-only accessibility…';
@@ -287,6 +295,15 @@ async function captureLiveCodingSource() {
   liveCodingCompleteConfirmation.checked = false;
   liveCodingResult = null;
   liveCodingCaptureTruncated = false;
+  liveCodingScreenshotMode = false;
+  liveCodingScreenshotParts = [];
+  liveCodingScreenshotReconstructionReady = false;
+  startLiveCodingScreenshotsBtn.hidden = false;
+  captureLiveCodingViewportBtn.hidden = true;
+  liveCodingScreenshotCount.textContent = '0 screenshots';
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  liveCodingScreenshotControls.hidden = false;
+  startLiveCodingScreenshotsBtn.disabled = true;
 
   let result;
   try {
@@ -294,16 +311,19 @@ async function captureLiveCodingSource() {
   } catch (error) {
     liveCodingStatus.textContent = `Capture failed: ${error.message || 'Accessibility reader error.'}`;
     liveCodingCaptureBtn.disabled = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
     return;
   }
   if (!result.ok) {
     liveCodingStatus.textContent = `Capture failed: ${result.error}`;
     liveCodingCaptureBtn.disabled = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
     return;
   }
 
   liveCodingInstructions.value = result.instructions || '';
   liveCodingSource.value = result.code || '';
+  liveCodingScreenshotReconstructionReady = Boolean(result.instructions?.trim() && result.code?.trim());
   liveCodingCaptureTruncated = Boolean(result.truncated);
   const flags = [];
   if (result.truncated) flags.push('Accessibility text was truncated at the capture limit.');
@@ -313,11 +333,12 @@ async function captureLiveCodingSource() {
   if (flags.length) liveCodingStatus.textContent += `\n${flags.join(' ')}`;
   liveCodingGenerateBtn.disabled = true;
   liveCodingCaptureBtn.disabled = false;
+  startLiveCodingScreenshotsBtn.disabled = false;
 }
 
 liveCodingCompleteConfirmation.addEventListener('change', () => {
   liveCodingGenerateBtn.disabled = !liveCodingCompleteConfirmation.checked ||
-    !liveCodingInstructions.value.trim() || !liveCodingSource.value.trim() || liveCodingCaptureTruncated;
+    !liveCodingInstructions.value.trim() || !liveCodingSource.value.trim() || liveCodingCaptureTruncated || !liveCodingScreenshotReconstructionReady;
 });
 
 function renderLiveCodingCode(result) {
@@ -343,6 +364,10 @@ function renderLiveCodingCode(result) {
 }
 
 async function startLiveCoding() {
+  if (liveCodingScreenshotMode) {
+    await captureLiveCodingViewport(true);
+    return;
+  }
   if (!liveCodingDialog.open) liveCodingDialog.showModal();
   await captureLiveCodingSource();
 }
@@ -350,6 +375,115 @@ async function startLiveCoding() {
 liveCodingCaptureBtn.addEventListener('click', captureLiveCodingSource);
 document.getElementById('close-live-coding-btn').addEventListener('click', () => liveCodingDialog.close());
 window.overlayAPI.onTriggerLiveCoding(startLiveCoding);
+
+async function captureLiveCodingViewport(hideAfterCapture) {
+  if (liveCodingScreenshotParts.length >= 20) {
+    liveCodingStatus.textContent = 'The screenshot limit is 20. Reopen the panel and reconstruct this set.';
+    return;
+  }
+  liveCodingStatus.textContent = `Capturing viewport ${liveCodingScreenshotParts.length + 1}…`;
+  captureLiveCodingViewportBtn.disabled = true;
+  let result;
+  try {
+    result = await window.overlayAPI.captureLiveCodingScreenshot();
+  } catch (error) {
+    liveCodingStatus.textContent = `Screenshot capture failed: ${error.message || 'capture error.'}`;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Screenshot capture failed: ${result.error}`;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  liveCodingScreenshotParts.push({
+    imagePart: result.imagePart,
+    width: result.width,
+    height: result.height,
+  });
+  liveCodingScreenshotCount.textContent = `${liveCodingScreenshotParts.length} screenshot(s)`;
+  reconstructLiveCodingScreenshotsBtn.disabled = false;
+  liveCodingStatus.textContent = `Captured viewport ${liveCodingScreenshotParts.length} (${result.width}×${result.height}). Scroll the code with overlap, then press Ctrl+I for the next view.`;
+  if (hideAfterCapture) {
+    try {
+      await window.overlayAPI.hideLiveCodingOverlay();
+    } catch (error) {
+      liveCodingStatus.textContent += ` The overlay could not hide automatically: ${error.message || 'hide error.'}`;
+    }
+  }
+  captureLiveCodingViewportBtn.disabled = false;
+}
+
+async function beginScreenshotFallback() {
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotParts = [];
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingInstructions.value = '';
+  liveCodingSource.value = '';
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingResult = null;
+  liveCodingCaptureTruncated = false;
+  startLiveCodingScreenshotsBtn.hidden = true;
+  captureLiveCodingViewportBtn.hidden = false;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  liveCodingScreenshotCount.textContent = '0 screenshots';
+  liveCodingStatus.textContent = 'Screenshot fallback started. Capturing the first view now…';
+  await captureLiveCodingViewport(true);
+}
+
+startLiveCodingScreenshotsBtn.addEventListener('click', beginScreenshotFallback);
+captureLiveCodingViewportBtn.addEventListener('click', () => {
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  captureLiveCodingViewport(true);
+});
+
+reconstructLiveCodingScreenshotsBtn.addEventListener('click', async () => {
+  if (!liveCodingScreenshotParts.length) return;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  captureLiveCodingViewportBtn.disabled = true;
+  liveCodingStatus.textContent = `Gemini is reconstructing the instruction and code from ${liveCodingScreenshotParts.length} overlapping screenshot(s)…`;
+  let result;
+  try {
+    result = await window.overlayAPI.reconstructLiveCodingScreenshots(liveCodingScreenshotParts);
+  } catch (error) {
+    liveCodingStatus.textContent = `Screenshot reconstruction failed: ${error.message || 'Gemini request error.'}`;
+    reconstructLiveCodingScreenshotsBtn.disabled = false;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  captureLiveCodingViewportBtn.disabled = false;
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Screenshot reconstruction failed: ${result.error}`;
+    reconstructLiveCodingScreenshotsBtn.disabled = false;
+    return;
+  }
+
+  liveCodingInstructions.value = result.instructions || '';
+  liveCodingSource.value = result.code || '';
+  liveCodingScreenshotReconstructionReady = !result.needsMoreScreenshots && result.sourceComplete === true;
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  const concerns = result.missingOrUnclear || [];
+  if (result.needsMoreScreenshots) {
+    liveCodingScreenshotMode = true;
+    liveCodingStatus.textContent = `More screenshots are needed: ${result.summary || 'the full source or instructions are not visible yet.'} Add overlapping views with Ctrl+I.`;
+    document.getElementById('live-coding-summary').textContent = 'Capture the missing section, then reconstruct again';
+    document.getElementById('live-coding-notes').textContent = concerns.join('\n');
+    liveCodingReview.hidden = false;
+    reconstructLiveCodingScreenshotsBtn.disabled = false;
+    return;
+  }
+
+  liveCodingScreenshotMode = false;
+  liveCodingStatus.textContent = `Reconstructed ${liveCodingSource.value.length.toLocaleString()} code characters from ${liveCodingScreenshotParts.length} screenshots. Review the text and confirm completeness before generating a patch.`;
+  document.getElementById('live-coding-summary').textContent = result.summary || 'Screenshot text reconstructed';
+  document.getElementById('live-coding-notes').textContent = concerns.join('\n');
+  liveCodingReview.hidden = false;
+  reconstructLiveCodingScreenshotsBtn.disabled = false;
+});
 
 liveCodingGenerateBtn.addEventListener('click', async () => {
   liveCodingGenerateBtn.disabled = true;
@@ -362,6 +496,7 @@ liveCodingGenerateBtn.addEventListener('click', async () => {
     result = await window.overlayAPI.generateLiveCodingPatch({
       instructions: liveCodingInstructions.value,
       code: liveCodingSource.value,
+      screenshots: liveCodingScreenshotParts,
     });
   } catch (error) {
     liveCodingStatus.textContent = `Patch failed safely; the captured source was not changed. ${error.message || 'Gemini request failed.'}`;
