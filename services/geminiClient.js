@@ -536,12 +536,14 @@ async function countTokens({ parts, systemInstruction }) {
   }
 
   const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-  const body = {
+  const generateContentRequest = {
+    model: `models/${model}`,
     contents: [{ role: 'user', parts }],
   };
   if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+    generateContentRequest.systemInstruction = { parts: [{ text: systemInstruction }] };
   }
+  const body = { generateContentRequest };
 
   let lastError = null;
   for (let attempt = 0; attempt < apiKeyManager.count(); attempt++) {
