@@ -275,7 +275,6 @@ const liveCodingGenerateBtn = document.getElementById('generate-live-coding-patc
 const liveCodingCopyBtn = document.getElementById('copy-live-coding-code-btn');
 const liveCodingReview = document.getElementById('live-coding-review');
 const liveCodingOutput = document.getElementById('live-coding-output');
-const liveCodingOriginalOutput = document.getElementById('live-coding-original-output');
 const liveCodingScreenshotControls = document.getElementById('live-coding-screenshot-controls');
 const startLiveCodingScreenshotsBtn = document.getElementById('start-live-coding-screenshots-btn');
 const captureLiveCodingViewportBtn = document.getElementById('capture-live-coding-viewport-btn');
@@ -362,28 +361,25 @@ liveCodingCompleteConfirmation.addEventListener('change', () => {
 function renderLiveCodingCode(result) {
   const changed = new Set(result.changedLines || []);
   const assumed = new Set(result.assumedLines || []);
-  const renderPane = (element, code, edited = false) => {
-    const fragment = document.createDocumentFragment();
-    String(code || '').split('\n').forEach((line, index) => {
-      const row = document.createElement('div');
-      row.className = 'live-code-line';
-      if (edited && assumed.has(index)) row.classList.add('assumed');
-      else if (edited && changed.has(index)) row.classList.add('changed');
-      const number = document.createElement('span');
-      number.className = 'live-code-number';
-      number.textContent = String(index + 1);
-      const content = document.createElement('span');
-      content.className = 'live-code-text';
-      content.textContent = line || ' ';
-      row.append(number, content);
-      fragment.appendChild(row);
-    });
-    element.replaceChildren(fragment);
-    element.scrollTop = 0;
-    element.scrollLeft = 0;
-  };
-  renderPane(liveCodingOriginalOutput, liveCodingSource.value);
-  renderPane(liveCodingOutput, result.code, true);
+  const fragment = document.createDocumentFragment();
+  const lines = String(result.code || '').split('\n');
+  lines.forEach((line, index) => {
+    const row = document.createElement('div');
+    row.className = 'live-code-line';
+    if (assumed.has(index)) row.classList.add('assumed');
+    else if (changed.has(index)) row.classList.add('changed');
+    const number = document.createElement('span');
+    number.className = 'live-code-number';
+    number.textContent = String(index + 1);
+    const content = document.createElement('span');
+    content.className = 'live-code-text';
+    content.textContent = line || ' ';
+    row.append(number, content);
+    fragment.appendChild(row);
+  });
+  liveCodingOutput.replaceChildren(fragment);
+  liveCodingOutput.scrollTop = 0;
+  liveCodingOutput.scrollLeft = 0;
 }
 
 async function startLiveCoding() {
