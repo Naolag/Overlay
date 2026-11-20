@@ -60,11 +60,12 @@
         <header class="live-coding-header">
           <div>
             <h2>Live coding</h2>
-            <p>Read-only accessibility capture → Gemini patch → full assembled code</p>
+            <p>Live coding</p>
           </div>
           <button id="close-live-coding-btn" type="button" aria-label="Close">×</button>
         </header>
         <div id="live-coding-status" role="status">Waiting to capture the focused window…</div>
+        <p id="live-coding-shortcuts" hidden>Ctrl+I capture / retake · Ctrl+Shift+Enter analyze · Ctrl+Shift+End end · Ctrl+Shift+Space show / hide</p>
         <p id="live-coding-capture-note">Accessibility capture does not move focus, scroll, type, select text, or use the clipboard. If it cannot read the editor, collect overlapping screenshots as a fallback.</p>
         <label class="live-coding-confirm"><input id="live-coding-complete-confirmation" type="checkbox" /> I reviewed the capture and believe it includes the full instruction and source, including off-screen code.</label>
         <div class="live-coding-source-grid">
@@ -77,12 +78,15 @@
           <button id="copy-live-coding-code-btn" type="button" hidden>Copy full code</button>
         </div>
         <section id="live-coding-screenshot-controls" hidden>
-          <p>Screenshot fallback: start capture, then scroll about 60–70% of the code viewport so screenshots overlap. Press <b>Ctrl+I</b> for each viewport; the overlay hides after each capture. After the final viewport, press <b>Ctrl+Shift+Space</b> to reopen this panel and reconstruct.</p>
+          <p>Each image captures the full active window. Scroll the instruction pane and code pane independently as needed; use overlapping views for both. Press <b>Ctrl+I</b> to capture a new view. After analyzing, select a screenshot ID to retake only that area; the new revision replaces it for analysis while the original stays temporary until the session ends. Press <b>Ctrl+Shift+Space</b> to reopen this panel.</p>
           <div class="live-coding-actions">
             <button id="start-live-coding-screenshots-btn" type="button">Start screenshot fallback</button>
             <button id="capture-live-coding-viewport-btn" type="button" hidden>Capture viewport and hide</button>
+            <select id="live-coding-retake-target" aria-label="Screenshot to replace" hidden></select>
+            <button id="retake-live-coding-screenshot-btn" type="button" hidden>Retake selected screenshot</button>
             <span id="live-coding-screenshot-count">0 screenshots</span>
-            <button id="reconstruct-live-coding-screenshots-btn" type="button" disabled>Reconstruct screenshots</button>
+            <button id="reconstruct-live-coding-screenshots-btn" type="button" disabled>Analyze all screenshots + solve</button>
+            <button id="end-live-coding-session-btn" type="button" hidden>End session and delete screenshots</button>
           </div>
         </section>
         <div id="live-coding-review" hidden>
@@ -115,4 +119,3 @@
   <script src="renderer.js"></script>
 </body>
 </html>
-

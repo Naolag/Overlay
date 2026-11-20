@@ -157,10 +157,18 @@ session.defaultSession.setDisplayMediaRequestHandler(
     },
     onStartLiveCoding: () => {
       if (!overlayWindow || overlayWindow.isDestroyed()) return;
-      // Keep the interview/editor window focused while the read-only UIA
-      // capture starts; the overlay can be clicked after capture completes.
+      // Keep the interview/editor window focused while live coding captures.
       overlayWindow.showInactive();
       overlayWindow.webContents.send('trigger-live-coding');
+    },
+    onAnalyzeLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.showInactive();
+      overlayWindow.webContents.send('trigger-live-coding-analyze');
+    },
+    onEndLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.webContents.send('trigger-live-coding-end');
     },
     onToggleVoice: () => {
       if (!overlayWindow || overlayWindow.isDestroyed()) return;
@@ -192,4 +200,3 @@ app.on('will-quit', () => {
 app.on('window-all-closed', () => {
   app.quit();
 });
-

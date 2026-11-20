@@ -34,4 +34,3 @@ The screenshot allowance is an initial estimate. Gemini's returned input-token m
 When enabled, the same Gemini response includes `QUESTION:` and `ANSWER:` sections. The app stores the transcript and displays only the answer section. If it cannot parse those sections, it shows a retryable error and records the failed item; the screenshot remains saved. No separate transcription request is made.
 
 Both context and transcription can be turned off for a session to compare their effect on response time and answer quality.
-

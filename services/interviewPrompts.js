@@ -72,4 +72,3 @@ module.exports = {
   createContextCompactionPrompt,
   compactJobContext,
 };
-

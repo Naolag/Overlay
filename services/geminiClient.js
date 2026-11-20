@@ -114,6 +114,7 @@ async function query({
   parts,
   systemInstruction,
   generationConfig,
+  tools,
 }) {
   if (!apiKeyManager.hasKeys()) {
     throw new GeminiClientError(
@@ -152,6 +153,10 @@ async function query({
 
   if (generationConfig) {
     body.generationConfig = generationConfig;
+  }
+
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = tools;
   }
 
   const maxKeys = apiKeyManager.count();
@@ -290,6 +295,9 @@ async function query({
 
         return {
           text,
+          codeExecutionResults: responseParts
+            .filter((part) => part.code_execution_result || part.codeExecutionResult)
+            .map((part) => part.code_execution_result || part.codeExecutionResult),
           usageMetadata: data?.usageMetadata ?? null,
           modelVersion: data?.modelVersion || model,
           history: [
@@ -599,4 +607,3 @@ module.exports = {
   countTokens,
   GeminiClientError,
 };
-

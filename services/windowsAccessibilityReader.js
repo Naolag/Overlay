@@ -148,4 +148,3 @@ function buildPanelText(snapshot) {
 }
 
 module.exports = { readWindowAccessibility, buildPanelText };
-

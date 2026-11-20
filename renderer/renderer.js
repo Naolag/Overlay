@@ -264,6 +264,8 @@ window.overlayAPI.onTriggerReadScreen(handleReadScreen);
 // --- Isolated live-coding workflow (Ctrl+I) ---
 
 const liveCodingDialog = document.getElementById('live-coding-dialog');
+const liveCodingWorkspace = document.getElementById('live-coding-workspace');
+const liveCodingShortcuts = document.getElementById('live-coding-shortcuts');
 const liveCodingStatus = document.getElementById('live-coding-status');
 const liveCodingInstructions = document.getElementById('live-coding-instructions');
 const liveCodingSource = document.getElementById('live-coding-source');
@@ -278,13 +280,21 @@ const startLiveCodingScreenshotsBtn = document.getElementById('start-live-coding
 const captureLiveCodingViewportBtn = document.getElementById('capture-live-coding-viewport-btn');
 const reconstructLiveCodingScreenshotsBtn = document.getElementById('reconstruct-live-coding-screenshots-btn');
 const liveCodingScreenshotCount = document.getElementById('live-coding-screenshot-count');
+const liveCodingRetakeTarget = document.getElementById('live-coding-retake-target');
+const liveCodingRetakeBtn = document.getElementById('retake-live-coding-screenshot-btn');
+const liveCodingEndSessionBtn = document.getElementById('end-live-coding-session-btn');
 let liveCodingResult = null;
 let liveCodingCaptureTruncated = false;
 let liveCodingScreenshotMode = false;
 let liveCodingScreenshotParts = [];
 let liveCodingScreenshotReconstructionReady = false;
+let liveCodingRecaptureRequests = [];
+let liveCodingAnalyzing = false;
 
 async function captureLiveCodingSource() {
+  try { await window.overlayAPI.endLiveCodingSession(); } catch (_) { /* A new capture can proceed if stale temp cleanup fails. */ }
+  liveCodingWorkspace.classList.remove('screenshot-mode');
+  liveCodingShortcuts.hidden = true;
   liveCodingStatus.textContent = 'Reading the focused window through read-only accessibility…';
   liveCodingCaptureBtn.disabled = true;
   liveCodingGenerateBtn.disabled = true;
@@ -298,11 +308,18 @@ async function captureLiveCodingSource() {
   liveCodingScreenshotMode = false;
   liveCodingScreenshotParts = [];
   liveCodingScreenshotReconstructionReady = false;
+  liveCodingRecaptureRequests = [];
   startLiveCodingScreenshotsBtn.hidden = false;
   captureLiveCodingViewportBtn.hidden = true;
   liveCodingScreenshotCount.textContent = '0 screenshots';
-  reconstructLiveCodingScreenshotsBtn.disabled = true;
   liveCodingScreenshotControls.hidden = false;
+  liveCodingEndSessionBtn.hidden = true;
+  liveCodingCompleteConfirmation.closest('label').hidden = false;
+  liveCodingCaptureBtn.hidden = false;
+  liveCodingGenerateBtn.hidden = false;
+  liveCodingRetakeTarget.hidden = true;
+  liveCodingRetakeBtn.hidden = true;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
   startLiveCodingScreenshotsBtn.disabled = true;
 
   let result;
@@ -365,19 +382,30 @@ function renderLiveCodingCode(result) {
 
 async function startLiveCoding() {
   if (liveCodingScreenshotMode) {
-    await captureLiveCodingViewport(true);
+    try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Keep the original bounds if expansion fails. */ }
+    if (!liveCodingDialog.open) liveCodingDialog.showModal();
+    const targetId = liveCodingRecaptureRequests.length ? liveCodingRetakeTarget.value : '';
+    await captureLiveCodingScreenshot(true, targetId);
     return;
   }
-  if (!liveCodingDialog.open) liveCodingDialog.showModal();
-  await captureLiveCodingSource();
+  await beginScreenshotFallback();
 }
 
 liveCodingCaptureBtn.addEventListener('click', captureLiveCodingSource);
 document.getElementById('close-live-coding-btn').addEventListener('click', () => liveCodingDialog.close());
+liveCodingDialog.addEventListener('close', () => {
+  window.overlayAPI.setLiveCodingWindowMode('restore').catch(() => {});
+});
 window.overlayAPI.onTriggerLiveCoding(startLiveCoding);
+window.overlayAPI.onTriggerLiveCodingAnalyze(analyzeLiveCodingScreenshots);
+window.overlayAPI.onTriggerLiveCodingEnd(endLiveCodingSession);
 
 async function captureLiveCodingViewport(hideAfterCapture) {
-  if (liveCodingScreenshotParts.length >= 20) {
+  return captureLiveCodingScreenshot(hideAfterCapture, '');
+}
+
+async function captureLiveCodingScreenshot(hideAfterCapture, targetScreenshotId) {
+  if (!targetScreenshotId && liveCodingScreenshotParts.length >= 20) {
     liveCodingStatus.textContent = 'The screenshot limit is 20. Reopen the panel and reconstruct this set.';
     return;
   }
@@ -385,7 +413,7 @@ async function captureLiveCodingViewport(hideAfterCapture) {
   captureLiveCodingViewportBtn.disabled = true;
   let result;
   try {
-    result = await window.overlayAPI.captureLiveCodingScreenshot();
+    result = await window.overlayAPI.captureLiveCodingScreenshot(targetScreenshotId);
   } catch (error) {
     liveCodingStatus.textContent = `Screenshot capture failed: ${error.message || 'capture error.'}`;
     captureLiveCodingViewportBtn.disabled = false;
@@ -396,14 +424,32 @@ async function captureLiveCodingViewport(hideAfterCapture) {
     captureLiveCodingViewportBtn.disabled = false;
     return;
   }
-  liveCodingScreenshotParts.push({
+  const captured = {
+    screenshotId: result.screenshotId,
+    revision: result.revision,
     imagePart: result.imagePart,
     width: result.width,
     height: result.height,
-  });
-  liveCodingScreenshotCount.textContent = `${liveCodingScreenshotParts.length} screenshot(s)`;
+  };
+  const replacedIndex = liveCodingScreenshotParts.findIndex((item) => item.screenshotId === result.screenshotId);
+  if (replacedIndex >= 0) liveCodingScreenshotParts.splice(replacedIndex, 1, captured);
+  else liveCodingScreenshotParts.push(captured);
+  if (targetScreenshotId) liveCodingRecaptureRequests = [];
+  liveCodingScreenshotCount.textContent = liveCodingScreenshotParts.map((item) => `${item.screenshotId} r${item.revision}`).join(' · ');
+  liveCodingRetakeTarget.replaceChildren(...liveCodingScreenshotParts.map((item) => {
+    const option = document.createElement('option');
+    option.value = item.screenshotId;
+    option.textContent = `${item.screenshotId} (current r${item.revision})`;
+    return option;
+  }));
+  liveCodingRetakeTarget.hidden = liveCodingScreenshotParts.length === 0;
+  liveCodingRetakeBtn.hidden = liveCodingScreenshotParts.length === 0;
+  liveCodingEndSessionBtn.hidden = false;
+  liveCodingResult = null;
+  liveCodingCopyBtn.hidden = true;
+  liveCodingReview.hidden = true;
   reconstructLiveCodingScreenshotsBtn.disabled = false;
-  liveCodingStatus.textContent = `Captured viewport ${liveCodingScreenshotParts.length} (${result.width}×${result.height}). Scroll the code with overlap, then press Ctrl+I for the next view.`;
+  liveCodingStatus.textContent = `Captured ${result.screenshotId} revision ${result.revision} (${result.width}×${result.height}). The full active window, including both panes, was saved temporarily.`;
   if (hideAfterCapture) {
     try {
       await window.overlayAPI.hideLiveCodingOverlay();
@@ -415,6 +461,11 @@ async function captureLiveCodingViewport(hideAfterCapture) {
 }
 
 async function beginScreenshotFallback() {
+  try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Keep the original bounds if expansion fails. */ }
+  if (!liveCodingDialog.open) liveCodingDialog.showModal();
+  try { await window.overlayAPI.endLiveCodingSession(); } catch (_) { /* Start a fresh capture session. */ }
+  liveCodingWorkspace.classList.add('screenshot-mode');
+  liveCodingShortcuts.hidden = false;
   liveCodingScreenshotMode = true;
   liveCodingScreenshotParts = [];
   liveCodingScreenshotReconstructionReady = false;
@@ -425,8 +476,16 @@ async function beginScreenshotFallback() {
   liveCodingCaptureTruncated = false;
   startLiveCodingScreenshotsBtn.hidden = true;
   captureLiveCodingViewportBtn.hidden = false;
+  liveCodingCompleteConfirmation.closest('label').hidden = true;
+  liveCodingCaptureBtn.hidden = true;
+  liveCodingGenerateBtn.hidden = true;
   reconstructLiveCodingScreenshotsBtn.disabled = true;
   liveCodingScreenshotCount.textContent = '0 screenshots';
+  liveCodingRecaptureRequests = [];
+  liveCodingRetakeTarget.replaceChildren();
+  liveCodingRetakeTarget.hidden = true;
+  liveCodingRetakeBtn.hidden = true;
+  liveCodingEndSessionBtn.hidden = false;
   liveCodingStatus.textContent = 'Screenshot fallback started. Capturing the first view now…';
   await captureLiveCodingViewport(true);
 }
@@ -440,15 +499,73 @@ captureLiveCodingViewportBtn.addEventListener('click', () => {
   captureLiveCodingViewport(true);
 });
 
-reconstructLiveCodingScreenshotsBtn.addEventListener('click', async () => {
-  if (!liveCodingScreenshotParts.length) return;
+liveCodingRetakeBtn.addEventListener('click', () => {
+  const targetId = liveCodingRetakeTarget.value;
+  if (!targetId) return;
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  captureLiveCodingScreenshot(true, targetId);
+});
+
+async function endLiveCodingSession() {
+  try {
+    await window.overlayAPI.endLiveCodingSession();
+    liveCodingScreenshotParts = [];
+    liveCodingScreenshotMode = false;
+    liveCodingWorkspace.classList.remove('screenshot-mode');
+    liveCodingShortcuts.hidden = true;
+    liveCodingScreenshotReconstructionReady = false;
+    liveCodingRecaptureRequests = [];
+    liveCodingResult = null;
+    liveCodingInstructions.value = '';
+    liveCodingSource.value = '';
+    liveCodingCompleteConfirmation.checked = false;
+    liveCodingReview.hidden = true;
+    liveCodingCopyBtn.hidden = true;
+    liveCodingGenerateBtn.disabled = true;
+    liveCodingScreenshotCount.textContent = '0 screenshots';
+    liveCodingRetakeTarget.replaceChildren();
+    liveCodingRetakeTarget.hidden = true;
+    liveCodingRetakeBtn.hidden = true;
+    liveCodingEndSessionBtn.hidden = true;
+    reconstructLiveCodingScreenshotsBtn.disabled = true;
+    captureLiveCodingViewportBtn.hidden = true;
+    startLiveCodingScreenshotsBtn.hidden = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
+    liveCodingCompleteConfirmation.closest('label').hidden = false;
+    liveCodingCaptureBtn.hidden = false;
+    liveCodingGenerateBtn.hidden = false;
+    if (liveCodingDialog.open) liveCodingDialog.close();
+    await window.overlayAPI.setLiveCodingWindowMode('restore');
+    liveCodingStatus.textContent = 'Live-coding session ended. Temporary screenshots were deleted.';
+  } catch (error) {
+    liveCodingStatus.textContent = `Could not end the session and delete its screenshots: ${error.message || 'cleanup error.'}`;
+  }
+}
+
+liveCodingEndSessionBtn.addEventListener('click', endLiveCodingSession);
+
+async function analyzeLiveCodingScreenshots() {
+  if (liveCodingAnalyzing) return;
+  if (!liveCodingScreenshotParts.length) {
+    liveCodingStatus.textContent = 'No screenshots are available yet. Press Ctrl+I to capture the full active window.';
+    return;
+  }
+  liveCodingAnalyzing = true;
+  try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Continue at the current overlay size. */ }
+  if (!liveCodingDialog.open) liveCodingDialog.showModal();
+  liveCodingWorkspace.classList.add('screenshot-mode');
+  liveCodingShortcuts.hidden = false;
   reconstructLiveCodingScreenshotsBtn.disabled = true;
   captureLiveCodingViewportBtn.disabled = true;
-  liveCodingStatus.textContent = `Gemini is reconstructing the instruction and code from ${liveCodingScreenshotParts.length} overlapping screenshot(s)…`;
+  liveCodingStatus.textContent = `Gemini is reading both panes and solving from ${liveCodingScreenshotParts.length} active screenshot revision(s)…`;
   let result;
   try {
     result = await window.overlayAPI.reconstructLiveCodingScreenshots(liveCodingScreenshotParts);
   } catch (error) {
+    liveCodingAnalyzing = false;
     liveCodingStatus.textContent = `Screenshot reconstruction failed: ${error.message || 'Gemini request error.'}`;
     reconstructLiveCodingScreenshotsBtn.disabled = false;
     captureLiveCodingViewportBtn.disabled = false;
@@ -456,34 +573,60 @@ reconstructLiveCodingScreenshotsBtn.addEventListener('click', async () => {
   }
   captureLiveCodingViewportBtn.disabled = false;
   if (!result.ok) {
+    liveCodingAnalyzing = false;
     liveCodingStatus.textContent = `Screenshot reconstruction failed: ${result.error}`;
     reconstructLiveCodingScreenshotsBtn.disabled = false;
     return;
   }
 
   liveCodingInstructions.value = result.instructions || '';
-  liveCodingSource.value = result.code || '';
-  liveCodingScreenshotReconstructionReady = !result.needsMoreScreenshots && result.sourceComplete === true;
+  liveCodingSource.value = result.sourceCode || '';
+  liveCodingScreenshotReconstructionReady = result.status === 'ready';
   liveCodingCompleteConfirmation.checked = false;
   liveCodingGenerateBtn.disabled = true;
-  const concerns = result.missingOrUnclear || [];
-  if (result.needsMoreScreenshots) {
-    liveCodingScreenshotMode = true;
-    liveCodingStatus.textContent = `More screenshots are needed: ${result.summary || 'the full source or instructions are not visible yet.'} Add overlapping views with Ctrl+I.`;
-    document.getElementById('live-coding-summary').textContent = 'Capture the missing section, then reconstruct again';
-    document.getElementById('live-coding-notes').textContent = concerns.join('\n');
-    liveCodingReview.hidden = false;
-    reconstructLiveCodingScreenshotsBtn.disabled = false;
-    return;
-  }
-
-  liveCodingScreenshotMode = false;
-  liveCodingStatus.textContent = `Reconstructed ${liveCodingSource.value.length.toLocaleString()} code characters from ${liveCodingScreenshotParts.length} screenshots. Review the text and confirm completeness before generating a patch.`;
-  document.getElementById('live-coding-summary').textContent = result.summary || 'Screenshot text reconstructed';
-  document.getElementById('live-coding-notes').textContent = concerns.join('\n');
+  liveCodingScreenshotMode = true;
+  liveCodingRecaptureRequests = result.recaptureRequests || [];
+  const requestedId = liveCodingRecaptureRequests.flatMap((request) => request.screenshotIds || [])
+    .find((id) => liveCodingScreenshotParts.some((item) => item.screenshotId === id));
+  if (requestedId) liveCodingRetakeTarget.value = requestedId;
+  liveCodingResult = {
+    code: result.solutionCode,
+    changedLines: result.changedLines || [],
+    assumedLines: result.assumedLines || [],
+  };
+  renderLiveCodingCode(liveCodingResult);
+  document.getElementById('live-coding-summary').textContent = `${result.status === 'ready' ? 'Solution ready' : 'Provisional solution'} — ${result.summary || 'Full best-effort code from the current captures'}`;
+  const recaptures = liveCodingRecaptureRequests.map((request) => {
+    const ids = (request.screenshotIds || []).join(', ') || 'unknown screenshot';
+    const resultRange = request.solutionLineRange || request.lineRange;
+    const ranges = [
+      resultRange ? `result lines ${resultRange.start}–${resultRange.end}` : '',
+      request.visibleEditorLineRange ? `visible editor lines ${request.visibleEditorLineRange.start}–${request.visibleEditorLineRange.end}` : '',
+    ].filter(Boolean).join('; ');
+    const location = [ranges, request.anchor ? `near “${request.anchor}”` : ''].filter(Boolean).join(', ') || 'the unclear area';
+    return `Recapture ${ids} · ${request.pane || 'code'} · ${location}: ${request.issue || 'unclear text'}\n${request.recaptureSteps || 'Scroll the requested area into view, then retake the listed screenshot ID.'}`;
+  });
+  const validation = result.validation || {};
+  const validationNote = validation.method === 'python_execution'
+    ? `Validation: Gemini returned Python execution results. ${validation.tests?.map((test) => `${test.result}: input ${test.input}; expected ${test.expected}; actual ${test.actual}`).join('; ') || 'See execution output below.'}\n${(validation.executionOutputs || []).map((item) => `${item.outcome}: ${item.output}`).join('\n')}`
+    : `Validation: ${validation.method === 'static_review' ? 'static reasoning only' : 'not executed'}; hidden test cases are not verified.`;
+  const notes = [
+    ...((result.assumptions || []).map((item) => `Assumption: ${item}`)),
+    ...((validation.limitations || []).map((item) => `Validation limit: ${item}`)),
+    validationNote,
+    ...recaptures,
+  ];
+  document.getElementById('live-coding-notes').textContent = notes.join('\n\n');
   liveCodingReview.hidden = false;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingStatus.textContent = result.status === 'ready'
+    ? `Complete best-effort solution generated from ${liveCodingScreenshotParts.length} active screenshot(s). ${liveCodingRecaptureRequests.length ? 'Review the targeted recapture requests.' : ''}`
+    : `Provisional full-code solution generated from current screenshots. ${liveCodingRecaptureRequests.length} targeted recapture request(s); select a cited ID to replace it and reanalyze all active screenshots.`;
   reconstructLiveCodingScreenshotsBtn.disabled = false;
-});
+  liveCodingAnalyzing = false;
+}
+
+reconstructLiveCodingScreenshotsBtn.addEventListener('click', analyzeLiveCodingScreenshots);
 
 liveCodingGenerateBtn.addEventListener('click', async () => {
   liveCodingGenerateBtn.disabled = true;
@@ -523,11 +666,26 @@ liveCodingGenerateBtn.addEventListener('click', async () => {
   liveCodingResult = result;
   renderLiveCodingCode(result);
   document.getElementById('live-coding-summary').textContent = result.summary;
-  const notes = [...(result.sourceConcerns || []), ...(result.assumptions || [])];
+  const recaptures = (result.recaptureRequests || []).map((request) => {
+    const ids = (request.screenshotIds || []).join(', ') || 'unknown screenshot';
+    const resultRange = request.solutionLineRange || request.lineRange;
+    const ranges = [
+      resultRange ? `result lines ${resultRange.start}–${resultRange.end}` : '',
+      request.visibleEditorLineRange ? `visible editor lines ${request.visibleEditorLineRange.start}–${request.visibleEditorLineRange.end}` : '',
+    ].filter(Boolean).join('; ');
+    const location = [ranges, request.anchor ? `near “${request.anchor}”` : ''].filter(Boolean).join(', ') || 'the unclear area';
+    return `Recapture ${ids} · ${request.pane || 'code'} · ${location}: ${request.issue || 'unclear text'}\n${request.recaptureSteps || 'Scroll the requested area into view and retake the listed screenshot ID.'}`;
+  });
+  const validation = result.validation || {};
+  const validationNote = validation.method === 'python_execution'
+    ? `Validation: Gemini returned Python execution results. ${validation.tests?.map((test) => `${test.result}: input ${test.input}; expected ${test.expected}; actual ${test.actual}`).join('; ') || 'See execution output below.'}\n${(validation.executionOutputs || []).map((item) => `${item.outcome}: ${item.output}`).join('\n')}`
+    : `Validation: ${validation.method === 'static_review' ? 'static reasoning only' : 'not executed'}; hidden test cases are not verified.`;
+  const notes = [...(result.sourceConcerns || []), ...(result.assumptions || []).map((item) => `Assumption: ${item}`), ...recaptures, validationNote];
   document.getElementById('live-coding-notes').textContent = notes.join('\n');
   liveCodingReview.hidden = false;
   liveCodingCopyBtn.hidden = false;
-  liveCodingStatus.textContent = `Patch applied to the captured text. ${result.changedLines.length} changed line(s), ${result.assumedLines.length} inferred line(s). No tests were run.`;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingStatus.textContent = `${result.status === 'provisional' ? 'Provisional patch' : 'Patch'} applied to the captured text. ${result.changedLines.length} changed line(s), ${result.assumedLines.length} inferred line(s). Validation: ${result.validation?.method === 'python_execution' ? 'Gemini Python execution' : 'not executed'}; hidden tests remain unverified.`;
 });
 
 liveCodingCopyBtn.addEventListener('click', async () => {
@@ -1070,4 +1228,3 @@ document.getElementById('view-lessons-btn').addEventListener('click', async () =
     .join('\n');
   appendEntry('System', `${result.lessons.length} saved lesson(s):\n${listText}\n\n(Click a specific one to review — not built yet; for now check data/lessons.json directly.)`);
 });
-

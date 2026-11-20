@@ -1,21 +1,21 @@
 # Live coding mode
 
-Live coding is an isolated workflow started with `Ctrl+I` on Windows. It does not reuse the interview-answer prompt, shared chat history, job-session context, or screenshot-answer handlers.
+Live coding is an isolated workflow started with `Ctrl+I` on Windows. It does not reuse the interview-answer prompt, shared chat history, job-session context, or screenshot-answer handlers. Its context consists of the current challenge instructions, code, screenshots, and live-coding-specific rules.
 
-## Capture and patch flow
+## Capture and solve flow
 
-1. The hotkey records the last external window handle and shows the existing overlay panel without activating it, so the target editor keeps focus during capture.
-2. A Windows UI Automation reader requests text from accessible controls using read-only Text and Value patterns. It does not click, focus, scroll, type, select text, or read/write the clipboard.
-3. Text controls are grouped by horizontal position: left-side text is treated as task instructions and right-side text as editor source. The panel shows both captured inputs and requires review because off-screen coverage depends on the editor's accessibility provider.
-4. If accessibility capture fails or cannot expose the editor text, screenshot fallback captures the active window at higher resolution. Start fallback once, scroll the code by roughly 60–70% of the viewport so captures overlap, and press `Ctrl+I` for each view. The same overlay hides after each capture so it does not cover the challenge. Press `Ctrl+Shift+Space` to reopen the panel, then ask Gemini to reconstruct the continuous instruction and source text. Gemini must request more screenshots when it cannot confirm top-to-bottom coverage or an overlap sequence.
-5. Gemini returns JSON containing minimal exact-match edits. Every match must occur exactly once in the captured or reconstructed source; overlapping or ambiguous edits are rejected without applying any changes.
-6. The app assembles the full result from the original text and accepted edits. Changed lines render blue and explicitly assumed replacement lines render red. The result can be copied from the panel.
+1. The existing overlay BrowserWindow is temporarily maximized for the solution view, so long code is readable and scrollable. It is the same HWND and keeps the existing capture-exclusion behavior; no second window is created. Closing the live-coding panel or ending the session restores the saved window bounds.
+2. The accessibility reader uses read-only Windows UI Automation text/value patterns. It does not click, focus, scroll, type, select text, or use the clipboard.
+3. `Ctrl+I` starts screenshot capture by default. Each image is the full active interview window, including both the left instruction pane and right code editor. Scroll either pane independently; capture overlapping views so the sequence covers all instruction sections and the whole source.
+4. Screenshot slots receive stable IDs (`S01`–`S20`) and revisions (`r1`, `r2`, ...). After Gemini requests a clearer area, `Ctrl+I` retakes the first requested screenshot ID automatically. Without a pending request, it adds a new screenshot. A retake replaces that slot in the active set; the prior image revision remains in the app's temporary directory until the session ends. Each analysis resends the complete active set in capture order, with each image's ID and revision.
+5. `Ctrl+Shift+Enter` asks Gemini to perform transcription, code reconstruction, and solution generation from all active screenshots in one request. It returns the best-effort full source with requested changes, even when some evidence is unclear. The result is marked provisional when it includes inferred lines or targeted recapture requests. The next `Ctrl+I` can capture the requested area; reanalysis resends all active screenshots.
+6. The viewer colors requested edits blue and inferred lines red. Recapture notes cite screenshot IDs, the solution line range where uncertainty appears, visible editor line numbers only when readable, an anchor, and scrolling instructions. Line ranges and recapture targets are model-provided guidance; review them against the image.
+7. The prompt requires the model to derive the required language, function signature or stdin/stdout format, constraints, and multiple-test-case behavior from the instructions. It favors an efficient algorithm that fits those constraints, preserves known source, and changes only what the task requires.
+8. Gemini's optional code-execution tool can run Python only. The prompt asks it to run the exact proposed Python solution against representative and boundary inputs when available. The app reports tool outputs and downgrades an execution claim if no tool result was returned. For Java, Rust, C++, JavaScript, or other target languages, it reports static reasoning rather than pretending that a Python translation validated the target code. Passing these tests does not establish that hidden tests pass.
+9. Use `Ctrl+Shift+End` or **End session and delete screenshots** to remove all temporary screenshot revisions. Closing the panel leaves the session available; application shutdown also attempts cleanup.
 
-No code is executed and this workflow does not edit the interview provider's editor. It only creates an assembled result in the overlay.
+The screenshot result view uses the full expanded overlay for the code and uncertainty report. The shortcut strip shows the active keys. The analysis and end-session buttons remain available as mouse alternatives.
 
-## Completeness limitation
+## Limits
 
-UI Automation can expose only the visible/accessibility page for some editors. The capture preview and status disclose that limitation. Screenshot fallback requires manual scrolling and overlap; it also cannot recover lines that are never captured or unreadable. Validate the target editor in a practice environment before relying on the result. Both routes require the user to review the assembled text before generating a patch.
-
-`Ctrl+I` registration is logged at startup. Electron does not guarantee that an OS-level global shortcut can be registered if another application already owns it.
-
+Screenshots can still omit or blur source and instructions. Gemini may misread visible text, and a prompt cannot recover information absent from every capture. A provisional complete-looking result is not proof of correctness. The code execution tool cannot execute non-Python target code, and neither model reasoning nor local tests reveal hidden interviewer tests.

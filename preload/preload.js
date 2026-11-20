@@ -23,9 +23,11 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   endJobSession: () => ipcRenderer.invoke('end-job-session'),
   retrySessionSave: () => ipcRenderer.invoke('retry-job-session-save'),
   captureLiveCodingWindow: () => ipcRenderer.invoke('live-coding-capture'),
-  captureLiveCodingScreenshot: () => ipcRenderer.invoke('live-coding-capture-screenshot'),
+  captureLiveCodingScreenshot: (targetScreenshotId) => ipcRenderer.invoke('live-coding-capture-screenshot', targetScreenshotId),
   reconstructLiveCodingScreenshots: (screenshots) => ipcRenderer.invoke('live-coding-reconstruct-screenshots', screenshots),
   generateLiveCodingPatch: (payload) => ipcRenderer.invoke('live-coding-generate-patch', payload),
+  endLiveCodingSession: () => ipcRenderer.invoke('live-coding-end-session'),
+  setLiveCodingWindowMode: (mode) => ipcRenderer.invoke('live-coding-window-mode', mode),
   copyLiveCodingCode: (code) => ipcRenderer.invoke('live-coding-copy-result', code),
   hideLiveCodingOverlay: () => ipcRenderer.invoke('live-coding-hide-overlay'),
 
@@ -53,6 +55,12 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   onTriggerLiveCoding: (callback) => {
     ipcRenderer.on('trigger-live-coding', () => callback());
   },
+  onTriggerLiveCodingAnalyze: (callback) => {
+    ipcRenderer.on('trigger-live-coding-analyze', () => callback());
+  },
+  onTriggerLiveCodingEnd: (callback) => {
+    ipcRenderer.on('trigger-live-coding-end', () => callback());
+  },
   onTriggerToggleVoice: (callback) => {
     ipcRenderer.on('trigger-toggle-voice', () => callback());
   },
@@ -65,4 +73,3 @@ contextBridge.exposeInMainWorld('overlayAPI', {
 
 
 });
-

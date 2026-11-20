@@ -19,6 +19,61 @@ const ffmpegPath = require('ffmpeg-static');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+let liveCodingTempDirectory = null;
+const liveCodingScreenshotSlots = new Map();
+const liveCodingWindowBounds = new Map();
+
+async function saveLiveCodingScreenshot(screenshot, targetScreenshotId) {
+  if (!liveCodingTempDirectory) {
+    liveCodingTempDirectory = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'overlay-live-coding-'));
+  }
+
+  let screenshotId = targetScreenshotId || '';
+  if (screenshotId && !liveCodingScreenshotSlots.has(screenshotId)) {
+    throw new Error('That screenshot ID is no longer available. Choose an active screenshot ID or capture a new view.');
+  }
+  if (!screenshotId) {
+    if (liveCodingScreenshotSlots.size >= 20) throw new Error('The screenshot limit is 20. Replace a screenshot or end this session.');
+    screenshotId = `S${String(liveCodingScreenshotSlots.size + 1).padStart(2, '0')}`;
+  }
+
+  const previous = liveCodingScreenshotSlots.get(screenshotId);
+  const revision = (previous?.revision || 0) + 1;
+  const fileName = `${screenshotId}-r${String(revision).padStart(2, '0')}.jpg`;
+  const filePath = path.join(liveCodingTempDirectory, fileName);
+  const imageBytes = Buffer.from(screenshot.imagePart.inline_data.data, 'base64');
+  await fs.promises.writeFile(filePath, imageBytes, { flag: 'wx' });
+  liveCodingScreenshotSlots.set(screenshotId, {
+    revision,
+    filePaths: [...(previous?.filePaths || []), filePath],
+  });
+
+  return {
+    ...screenshot,
+    screenshotId,
+    revision,
+  };
+}
+
+async function endLiveCodingScreenshotSession() {
+  const directory = liveCodingTempDirectory;
+  if (directory) await fs.promises.rm(directory, { recursive: true, force: true });
+  liveCodingTempDirectory = null;
+  liveCodingScreenshotSlots.clear();
+  return { ok: true };
+}
+
+async function queryLiveCodingWithOptionalPythonExecution(request) {
+  try {
+    return await geminiClient.query({ ...request, tools: [{ code_execution: {} }] });
+  } catch (error) {
+    const details = `${error.message || ''} ${error.cause || ''}`;
+    if (!/code[_ ]execution|tool.{0,30}not supported|unsupported.{0,30}tool/i.test(details)) throw error;
+    console.warn('[live-coding] Gemini code execution is unavailable for the selected model; retrying without it.');
+    const fallback = await geminiClient.query(request);
+    return { ...fallback, codeExecutionResults: [], codeExecutionUnavailable: true };
+  }
+}
 // Applied to every Gemini call via system_instruction — the correct place
 // for persistent context/persona, rather than repeating disambiguating text
 // in each individual prompt. Fixes "on-call"/"triage" defaulting toward a
@@ -109,15 +164,54 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
     }
   });
 
-  ipcMain.handle('live-coding-capture-screenshot', async () => {
+  ipcMain.handle('live-coding-capture-screenshot', async (_event, targetScreenshotId = '') => {
     try {
       const hwnd = getLastExternalWindowHandle();
       if (!hwnd) throw new Error('No target window found. Focus the challenge window and retry the screenshot.');
       const targetHandle = BigInt(`0x${hwnd}`).toString(10);
-      return { ok: true, ...(await captureLiveCodingScreenshotPart(targetHandle)) };
+      const screenshot = await captureLiveCodingScreenshotPart(targetHandle);
+      return { ok: true, ...(await saveLiveCodingScreenshot(screenshot, targetScreenshotId)) };
     } catch (error) {
       console.error('[live-coding-screenshot] failed:', error);
       return { ok: false, error: error.message || 'Could not capture the target window.' };
+    }
+  });
+
+  ipcMain.handle('live-coding-end-session', endLiveCodingScreenshotSession);
+
+  ipcMain.handle('live-coding-window-mode', (event, mode) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return { ok: false };
+    if (mode === 'expanded') {
+      if (!liveCodingWindowBounds.has(win.id)) {
+        liveCodingWindowBounds.set(win.id, {
+          bounds: win.getBounds(),
+          wasMaximized: win.isMaximized(),
+        });
+      }
+      if (!win.isMaximized()) win.maximize();
+      return { ok: true, bounds: win.getBounds() };
+    }
+    if (mode === 'restore') {
+      const previous = liveCodingWindowBounds.get(win.id);
+      if (previous) {
+        if (win.isMaximized()) win.unmaximize();
+        if (previous.wasMaximized) win.maximize();
+        else win.setBounds(previous.bounds);
+        liveCodingWindowBounds.delete(win.id);
+      }
+      return { ok: true, bounds: win.getBounds() };
+    }
+    return { ok: false, error: 'Unknown live-coding window mode.' };
+  });
+
+  app.once('will-quit', () => {
+    if (liveCodingTempDirectory) {
+      try { fs.rmSync(liveCodingTempDirectory, { recursive: true, force: true }); } catch (error) {
+        console.warn('[live-coding] Could not remove temporary screenshots during shutdown:', error.message);
+      }
+      liveCodingTempDirectory = null;
+      liveCodingScreenshotSlots.clear();
     }
   });
 
@@ -126,26 +220,48 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
       if (!Array.isArray(screenshots) || screenshots.length < 1 || screenshots.length > 20) {
         throw new Error('Capture between 1 and 20 viewport screenshots before reconstruction.');
       }
-      const imageParts = screenshots.map((item) => item?.imagePart).filter((part) =>
-        part?.inline_data?.mime_type === 'image/jpeg' && typeof part.inline_data.data === 'string'
+      const validScreenshots = screenshots.filter((item) =>
+        /^S\d{2}$/.test(item?.screenshotId || '') && Number.isInteger(item?.revision) &&
+        item?.imagePart?.inline_data?.mime_type === 'image/jpeg' && typeof item.imagePart.inline_data.data === 'string'
       );
-      if (imageParts.length !== screenshots.length) throw new Error('One or more screenshot captures are invalid. Capture them again.');
+      if (validScreenshots.length !== screenshots.length) throw new Error('One or more screenshot captures are invalid. Capture them again.');
+      const imageParts = validScreenshots.map((item) => item.imagePart);
       const totalBytes = imageParts.reduce((total, part) => total + Math.ceil(part.inline_data.data.length * 3 / 4), 0);
       if (totalBytes > 12 * 1024 * 1024) throw new Error('The screenshot set is too large. Use fewer, overlapping viewport captures.');
 
-      const { text } = await geminiClient.query({
+      const requestParts = [{ text: `Analyze all ${validScreenshots.length} full-window screenshots in capture order. Reconstruct the complete scrollable instructions and code, solve the task, and return the best-effort full solution plus targeted recapture requests if needed. The active revision for each screenshot ID is shown immediately before its image.` }];
+      for (const screenshot of validScreenshots) {
+        requestParts.push({ text: `SCREENSHOT ${screenshot.screenshotId} REVISION ${screenshot.revision} — full active window; left instruction pane and right code editor.` });
+        requestParts.push(screenshot.imagePart);
+      }
+      const { text, codeExecutionResults = [], codeExecutionUnavailable = false } = await queryLiveCodingWithOptionalPythonExecution({
         history: [],
         systemInstruction: SCREENSHOT_RECONSTRUCTION_PROMPT,
-        generationConfig: { responseMimeType: 'application/json' },
-        parts: [
-          { text: `Transcribe these ${imageParts.length} screenshots in capture order. The images overlap where the code was scrolled. Produce only the required reconstruction JSON.` },
-          ...imageParts,
-        ],
+        // Gemini currently rejects JSON response MIME mode together with built-in tools.
+        // The isolated live-coding prompt still requires a JSON object, which is validated below.
+        parts: requestParts,
       });
       const reconstruction = parseScreenshotReconstruction(text);
+      reconstruction.validation = reconstruction.validation || { method: 'not_run', tests: [], limitations: [] };
+      if (codeExecutionResults.length) {
+        reconstruction.validation.method = reconstruction.language?.toLowerCase() === 'python' ? 'python_execution' : 'not_run';
+        reconstruction.validation.executionOutputs = codeExecutionResults.map((result) => ({
+          outcome: result.outcome || 'unknown',
+          output: String(result.output || '').slice(0, 12_000),
+        }));
+        if (reconstruction.language?.toLowerCase() !== 'python') {
+          reconstruction.validation.limitations = [...(reconstruction.validation.limitations || []), 'Gemini code execution only ran Python; it did not execute the target-language solution.'];
+        }
+      } else if (reconstruction.validation.method === 'python_execution') {
+        reconstruction.validation.method = 'static_review';
+        reconstruction.validation.limitations = [...(reconstruction.validation.limitations || []), 'Gemini returned no code-execution result; Python execution is unverified.'];
+      }
+      if (codeExecutionUnavailable) {
+        reconstruction.validation.method = 'static_review';
+        reconstruction.validation.limitations = [...(reconstruction.validation.limitations || []), 'The selected Gemini model did not support the Python execution tool; code was not executed.'];
+      }
       return {
         ok: true,
-        needsMoreScreenshots: reconstruction.status !== 'ready',
         ...reconstruction,
       };
     } catch (error) {
@@ -163,41 +279,69 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
       if (code.length > 160_000 || instructions.length > 60_000) {
         throw new Error('The captured text is too large for one patch request. Reduce unrelated page text and retry.');
       }
-      const screenshotParts = Array.isArray(payload.screenshots)
-        ? payload.screenshots.map((item) => item?.imagePart).filter((part) =>
-          part?.inline_data?.mime_type === 'image/jpeg' && typeof part.inline_data.data === 'string'
-        )
-        : [];
-      if (screenshotParts.length > 20) throw new Error('Too many screenshot references; keep the capture set to 20 or fewer.');
+      const screenshots = Array.isArray(payload.screenshots) ? payload.screenshots : [];
+      if (screenshots.length > 20) throw new Error('Too many screenshot references; keep the capture set to 20 or fewer.');
+      const screenshotParts = [];
+      for (const screenshot of screenshots) {
+        if (screenshot?.imagePart?.inline_data?.mime_type !== 'image/jpeg' || typeof screenshot.imagePart.inline_data.data !== 'string') {
+          throw new Error('One or more screenshot references are invalid. Capture them again.');
+        }
+        if (screenshot.screenshotId && Number.isInteger(screenshot.revision)) {
+          screenshotParts.push({ text: `SCREENSHOT ${screenshot.screenshotId} REVISION ${screenshot.revision} — full active window with instruction and code panes.` });
+        }
+        screenshotParts.push(screenshot.imagePart);
+      }
 
-      const { text } = await geminiClient.query({
+      const { text, codeExecutionResults = [], codeExecutionUnavailable = false } = await queryLiveCodingWithOptionalPythonExecution({
         history: [],
         systemInstruction: LIVE_CODING_SYSTEM_PROMPT,
-        generationConfig: { responseMimeType: 'application/json' },
+        // Tool calls and JSON response MIME mode are not supported together by Gemini.
         parts: [
-          { text: `CAPTURE LIMITATION: Full off-screen source coverage is unverified unless the capture preview was checked. Do not assume unseen source. If the provided instruction or source appears incomplete or cannot support a precise patch, return status "need_more_source". If screenshot references are present, use them only to cross-check the supplied text and identify uncertain or missing source; do not invent code.\n\nTASK INSTRUCTIONS (left side of target window):\n${instructions}\n\nSOURCE CODE (right-side editor accessibility text or screenshot reconstruction):\n${code}\n\nReturn the minimal exact-text edits in the required JSON format.` },
+          { text: `CAPTURE LIMITATION: Full off-screen source coverage is unverified unless the user reviewed the capture. Do not assume unseen source. Use screenshots, when supplied, as full-window evidence: the instruction pane may scroll independently from the editor, and each capture may contain a different portion of the same instructions.\n\nTASK INSTRUCTIONS (left pane):\n${instructions}\n\nSOURCE CODE (editor):\n${code}\n\nReturn exact minimal edits in the required JSON format. If evidence is incomplete, still provide a best-effort safe patch and targeted recapture requests; mark assumptions and status provisional.` },
           ...screenshotParts,
         ],
       });
       const patch = parsePatchResponse(text);
-      if (patch.status !== 'ready') {
+      if (!patch.edits.length) {
         return {
           ok: true,
           needsMoreSource: true,
           summary: patch.summary || 'The available text does not appear sufficient for a safe patch.',
           assumptions: patch.assumptions,
           sourceConcerns: patch.sourceConcerns,
+          recaptureRequests: patch.recaptureRequests,
         };
       }
       const applied = applyPatch(code, patch.edits);
+      const validation = patch.validation || { method: 'not_run', tests: [], limitations: [] };
+      if (codeExecutionResults.length) {
+        validation.method = String(patch.language || '').toLowerCase() === 'python' ? 'python_execution' : 'not_run';
+        validation.executionOutputs = codeExecutionResults.map((result) => ({
+          outcome: result.outcome || 'unknown',
+          output: String(result.output || '').slice(0, 12_000),
+        }));
+        if (String(patch.language || '').toLowerCase() !== 'python') {
+          validation.limitations = [...(validation.limitations || []), 'Gemini code execution only ran Python; it did not execute the target-language solution.'];
+        }
+      } else if (validation.method === 'python_execution') {
+        validation.method = 'static_review';
+        validation.limitations = [...(validation.limitations || []), 'Gemini returned no code-execution result; Python execution is unverified.'];
+      }
+      if (codeExecutionUnavailable) {
+        validation.method = 'static_review';
+        validation.limitations = [...(validation.limitations || []), 'The selected Gemini model did not support the Python execution tool; code was not executed.'];
+      }
       return {
         ok: true,
         code: applied.code,
         changedLines: applied.changedLines,
         assumedLines: applied.assumedLines,
+        status: patch.status,
         summary: patch.summary || 'Patch applied.',
         assumptions: patch.assumptions,
         sourceConcerns: patch.sourceConcerns,
+        recaptureRequests: patch.recaptureRequests,
+        validation,
       };
     } catch (error) {
       console.error('[live-coding-generate-patch] failed:', error);
@@ -758,4 +902,3 @@ ipcMain.handle('gemini-summarize-recording', async (event, { base64Audio, mimeTy
 }
 
 module.exports = { registerIpcHandlers };
-

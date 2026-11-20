@@ -137,6 +137,4 @@ Gemini Flash API wired into a chat box inside this same panel.
 The optional job-specific session recorder, local Q&A files, compact context, and transcription settings are documented in [JOB_SESSIONS.md](JOB_SESSIONS.md).
 # Live coding mode
 
-Press `Ctrl+I` to start the separate read-only live-coding workflow. See [LIVE_CODING.md](LIVE_CODING.md) for its capture limits and patch behavior.
-
-
+Press `Ctrl+I` to start the separate live-coding workflow. See [LIVE_CODING.md](LIVE_CODING.md) for capture details and hotkeys.
