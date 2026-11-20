@@ -222,7 +222,10 @@ html, body {
 .live-coding-legend { display: flex; gap: 10px; font-size: 10px; }
 .changed-key { color: #60a5fa; }
 .assumed-key { color: #f87171; }
-#live-coding-output { min-height: 0; flex: 1; margin: 0; overflow: auto; border: 1px solid #34343d; background: #0b0b0e; font: 12px/1.35 Consolas, monospace; tab-size: 4; }
+.live-coding-code-panes { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.live-coding-code-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+.live-coding-code-pane h4 { margin: 0; color: #ccc; font-size: 11px; font-weight: 600; }
+.live-coding-code-pane pre { min-width: 0; min-height: 0; flex: 1; margin: 0; overflow: auto; border: 1px solid #34343d; background: #0b0b0e; font: 12px/1.35 Consolas, monospace; tab-size: 4; }
 .live-code-line { display: flex; min-height: 1.45em; white-space: pre; }
 .live-code-line.changed { color: #60a5fa; background: rgba(37, 99, 235, 0.1); }
 .live-code-line.assumed { color: #f87171; background: rgba(220, 38, 38, 0.12); }
@@ -243,6 +246,10 @@ html, body {
 #live-coding-workspace.screenshot-mode #live-coding-shortcuts { display: block; }
 #live-coding-workspace.screenshot-mode #live-coding-screenshot-controls { display: block; }
 #live-coding-workspace.screenshot-mode #live-coding-review { flex: 1; }
+
+@media (max-width: 560px) {
+  .live-coding-code-panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+}
 
 .dialog-actions {
   display: flex;

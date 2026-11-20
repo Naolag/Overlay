@@ -1,4 +1,4 @@
-const { ipcMain, desktopCapturer, app, clipboard, BrowserWindow } = require('electron');
+const { ipcMain, desktopCapturer, app, clipboard, BrowserWindow, screen } = require('electron');
 const geminiClient = require('../services/geminiClient');
 const conversationState = require('./conversationState');
 const { captureWindowSourcePart, captureLiveCodingScreenshotPart } = require('./screenCapture');
@@ -187,9 +187,16 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
         liveCodingWindowBounds.set(win.id, {
           bounds: win.getBounds(),
           wasMaximized: win.isMaximized(),
+          minimumSize: win.getMinimumSize(),
         });
       }
-      if (!win.isMaximized()) win.maximize();
+      if (win.isMaximized()) win.unmaximize();
+      const display = screen.getDisplayMatching(win.getBounds());
+      const area = display.workArea;
+      const width = Math.round(area.width / 2);
+      win.setResizable(true);
+      win.setMinimumSize(Math.min(520, width), Math.min(360, area.height));
+      win.setBounds({ x: area.x, y: area.y, width, height: area.height });
       return { ok: true, bounds: win.getBounds() };
     }
     if (mode === 'restore') {
@@ -198,6 +205,7 @@ function registerIpcHandlers({ getExclusionApplied, getWatermarkColor, getLastEx
         if (win.isMaximized()) win.unmaximize();
         if (previous.wasMaximized) win.maximize();
         else win.setBounds(previous.bounds);
+        win.setMinimumSize(...previous.minimumSize);
         liveCodingWindowBounds.delete(win.id);
       }
       return { ok: true, bounds: win.getBounds() };
