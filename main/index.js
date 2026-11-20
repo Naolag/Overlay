@@ -155,6 +155,21 @@ session.defaultSession.setDisplayMediaRequestHandler(
       overlayWindow.show();
       overlayWindow.webContents.send('trigger-read-screen');
     },
+    onStartLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      // Keep the interview/editor window focused while live coding captures.
+      overlayWindow.showInactive();
+      overlayWindow.webContents.send('trigger-live-coding');
+    },
+    onAnalyzeLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.showInactive();
+      overlayWindow.webContents.send('trigger-live-coding-analyze');
+    },
+    onEndLiveCoding: () => {
+      if (!overlayWindow || overlayWindow.isDestroyed()) return;
+      overlayWindow.webContents.send('trigger-live-coding-end');
+    },
     onToggleVoice: () => {
       if (!overlayWindow || overlayWindow.isDestroyed()) return;
       overlayWindow.show();

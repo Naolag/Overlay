@@ -113,6 +113,8 @@ async function query({
   history = [],
   parts,
   systemInstruction,
+  generationConfig,
+  tools,
 }) {
   if (!apiKeyManager.hasKeys()) {
     throw new GeminiClientError(
@@ -147,6 +149,14 @@ async function query({
         },
       ],
     };
+  }
+
+  if (generationConfig) {
+    body.generationConfig = generationConfig;
+  }
+
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = tools;
   }
 
   const maxKeys = apiKeyManager.count();
@@ -285,6 +295,11 @@ async function query({
 
         return {
           text,
+          codeExecutionResults: responseParts
+            .filter((part) => part.code_execution_result || part.codeExecutionResult)
+            .map((part) => part.code_execution_result || part.codeExecutionResult),
+          usageMetadata: data?.usageMetadata ?? null,
+          modelVersion: data?.modelVersion || model,
           history: [
             ...contents,
             modelTurn,
@@ -523,7 +538,72 @@ async function query({
   );
 }
 
+async function countTokens({ parts, systemInstruction }) {
+  if (!apiKeyManager.hasKeys()) {
+    throw new GeminiClientError('No Gemini API key configured.');
+  }
+
+  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const generateContentRequest = {
+    model: `models/${model}`,
+    contents: [{ role: 'user', parts }],
+  };
+  if (systemInstruction) {
+    generateContentRequest.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+  const body = { generateContentRequest };
+
+  let lastError = null;
+  for (let attempt = 0; attempt < apiKeyManager.count(); attempt++) {
+    const apiKey = apiKeyManager.getUsableKey();
+    if (!apiKey) break;
+
+    let response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      response = await fetch(`${ENDPOINT_BASE}/${model}:countTokens`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new GeminiClientError('Could not count Gemini input tokens.', err);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response.ok) {
+      apiKeyManager.markSuccess(apiKey);
+      const data = await response.json();
+      return Number(data?.totalTokens) || 0;
+    }
+
+    const message = await response.text().catch(() => '');
+    lastError = new GeminiClientError(
+      `Gemini token count failed (HTTP ${response.status}).`,
+      message
+    );
+    if (response.status === 401 || response.status === 403) {
+      apiKeyManager.markInvalid(apiKey);
+      continue;
+    }
+    if (response.status === 429) {
+      apiKeyManager.markRateLimited(apiKey);
+      continue;
+    }
+    break;
+  }
+
+  throw lastError || new GeminiClientError('No usable Gemini API key available to count tokens.');
+}
+
 module.exports = {
   query,
+  countTokens,
   GeminiClientError,
 };

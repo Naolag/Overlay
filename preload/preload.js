@@ -17,6 +17,19 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   summarizeRecording: (base64Audio, mimeType, label) =>
     ipcRenderer.invoke('gemini-summarize-recording', { base64Audio, mimeType, label }),
   getAllLessons: () => ipcRenderer.invoke('get-all-lessons'),
+  getJobSessionStatus: () => ipcRenderer.invoke('get-job-session-status'),
+  startJobSession: (session) => ipcRenderer.invoke('start-job-session', session),
+  retryJobContext: () => ipcRenderer.invoke('retry-job-context'),
+  endJobSession: () => ipcRenderer.invoke('end-job-session'),
+  retrySessionSave: () => ipcRenderer.invoke('retry-job-session-save'),
+  captureLiveCodingWindow: () => ipcRenderer.invoke('live-coding-capture'),
+  captureLiveCodingScreenshot: (targetScreenshotId) => ipcRenderer.invoke('live-coding-capture-screenshot', targetScreenshotId),
+  reconstructLiveCodingScreenshots: (screenshots) => ipcRenderer.invoke('live-coding-reconstruct-screenshots', screenshots),
+  generateLiveCodingPatch: (payload) => ipcRenderer.invoke('live-coding-generate-patch', payload),
+  endLiveCodingSession: () => ipcRenderer.invoke('live-coding-end-session'),
+  setLiveCodingWindowMode: (mode) => ipcRenderer.invoke('live-coding-window-mode', mode),
+  copyLiveCodingCode: (code) => ipcRenderer.invoke('live-coding-copy-result', code),
+  hideLiveCodingOverlay: () => ipcRenderer.invoke('live-coding-hide-overlay'),
 
   getWatermarkColor: () => ipcRenderer.invoke('get-watermark-color'),
   getLastExposureEvent: () => ipcRenderer.invoke('get-last-exposure-event'),
@@ -39,12 +52,24 @@ contextBridge.exposeInMainWorld('overlayAPI', {
   onTriggerReadScreen: (callback) => {
     ipcRenderer.on('trigger-read-screen', () => callback());
   },
+  onTriggerLiveCoding: (callback) => {
+    ipcRenderer.on('trigger-live-coding', () => callback());
+  },
+  onTriggerLiveCodingAnalyze: (callback) => {
+    ipcRenderer.on('trigger-live-coding-analyze', () => callback());
+  },
+  onTriggerLiveCodingEnd: (callback) => {
+    ipcRenderer.on('trigger-live-coding-end', () => callback());
+  },
   onTriggerToggleVoice: (callback) => {
     ipcRenderer.on('trigger-toggle-voice', () => callback());
   },
   onToggleScreenRecording: (callback) => {
   ipcRenderer.on('trigger-toggle-screen-recording', () => callback());
 },
+  onJobSessionError: (callback) => {
+    ipcRenderer.on('job-session-error', (_event, data) => callback(data));
+  },
 
 
 });

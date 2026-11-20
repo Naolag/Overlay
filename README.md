@@ -131,3 +131,10 @@ moves fast, models get renamed/retired every few months).
 ## Next: Day 2
 
 Gemini Flash API wired into a chat box inside this same panel.
+
+## Job interview sessions
+
+The optional job-specific session recorder, local Q&A files, compact context, and transcription settings are documented in [JOB_SESSIONS.md](JOB_SESSIONS.md).
+# Live coding mode
+
+Press `Ctrl+I` to start the separate live-coding workflow. See [LIVE_CODING.md](LIVE_CODING.md) for capture details and hotkeys.

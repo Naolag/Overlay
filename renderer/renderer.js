@@ -70,6 +70,119 @@ async function handleSend(event) {
 
 chatForm.addEventListener('submit', handleSend);
 
+// --- Optional interview job session ---
+
+const jobSessionDialog = document.getElementById('job-session-dialog');
+const jobSessionForm = document.getElementById('job-session-form');
+const jobSessionStatus = document.getElementById('job-session-status');
+const startJobSessionBtn = document.getElementById('start-job-session-btn');
+const endJobSessionBtn = document.getElementById('end-job-session-btn');
+const retryJobContextBtn = document.getElementById('retry-job-context-btn');
+const retrySessionSaveBtn = document.getElementById('retry-session-save-btn');
+const jobSessionFormError = document.getElementById('job-session-form-error');
+const confirmJobSessionBtn = document.getElementById('confirm-job-session-btn');
+
+function updateJobSessionUI(status) {
+  const active = Boolean(status?.active);
+  jobSessionStatus.textContent = active
+    ? `${status.jobName} · ${status.questionCount} saved question(s)`
+    : 'Job session off';
+  startJobSessionBtn.hidden = active;
+  endJobSessionBtn.hidden = !active;
+  retryJobContextBtn.hidden = !(
+    active && status.options?.useContext && !status.contextReady
+  );
+}
+
+startJobSessionBtn.addEventListener('click', () => {
+  jobSessionFormError.textContent = '';
+  jobSessionDialog.showModal();
+});
+
+document.getElementById('cancel-job-session-btn').addEventListener('click', () => {
+  jobSessionDialog.close();
+});
+
+jobSessionForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  jobSessionFormError.textContent = '';
+  confirmJobSessionBtn.disabled = true;
+  confirmJobSessionBtn.textContent = 'Preparing…';
+
+  const payload = {
+    jobName: document.getElementById('job-name-input').value.trim(),
+    jobDescription: document.getElementById('job-description-input').value,
+    requiredSkills: document.getElementById('required-skills-input').value,
+    options: {
+      useContext: document.getElementById('job-context-enabled').checked,
+      transcribeQuestion: document.getElementById('question-transcription-enabled').checked,
+    },
+  };
+
+  try {
+    const result = await window.overlayAPI.startJobSession(payload);
+    if (!result.ok) throw new Error(result.error);
+    jobSessionDialog.close();
+    updateJobSessionUI(result.status);
+    appendEntry(
+      'System',
+      result.contextError
+        ? `⚠ Job session started, but compact context could not be created: ${result.contextError}. The interview still works without context; retry it from the session bar.`
+        : `Job session started. Files are being saved under Documents\\Overlay Job Sessions${result.budget ? ` · context ${result.budget.tokenCount}/${result.budget.tokenLimit} tokens` : ''}.`
+    );
+  } catch (err) {
+    jobSessionFormError.textContent = err.message || 'Could not start session.';
+  } finally {
+    confirmJobSessionBtn.disabled = false;
+    confirmJobSessionBtn.textContent = 'Start session';
+  }
+});
+
+retryJobContextBtn.addEventListener('click', async () => {
+  retryJobContextBtn.disabled = true;
+  retryJobContextBtn.textContent = 'Retrying…';
+  const result = await window.overlayAPI.retryJobContext();
+  if (result.ok) {
+    updateJobSessionUI(result.status);
+    appendEntry('System', `Job context saved (${result.budget.tokenCount}/${result.budget.tokenLimit} tokens).`);
+  } else {
+    appendEntry('System', `⚠ Context retry failed: ${result.error}`, true);
+  }
+  retryJobContextBtn.disabled = false;
+  retryJobContextBtn.textContent = 'Retry context';
+});
+
+endJobSessionBtn.addEventListener('click', async () => {
+  endJobSessionBtn.disabled = true;
+  const result = await window.overlayAPI.endJobSession();
+  if (result.ok) {
+    updateJobSessionUI({ active: false });
+    appendEntry('System', `Job session saved: ${result.directory}`);
+  } else {
+    appendEntry('System', `⚠ Could not finish job session: ${result.error}`, true);
+  }
+  endJobSessionBtn.disabled = false;
+});
+
+retrySessionSaveBtn.addEventListener('click', async () => {
+  retrySessionSaveBtn.disabled = true;
+  const result = await window.overlayAPI.retrySessionSave();
+  if (result.ok) {
+    retrySessionSaveBtn.hidden = true;
+    appendEntry('System', 'Session files saved successfully.');
+  } else {
+    appendEntry('System', `⚠ Session save retry failed: ${result.error}`, true);
+  }
+  retrySessionSaveBtn.disabled = false;
+});
+
+window.overlayAPI.onJobSessionError(({ message }) => {
+  appendEntry('System', `⚠ ${message} The interview response flow continues.`, true);
+  retrySessionSaveBtn.hidden = false;
+});
+
+window.overlayAPI.getJobSessionStatus().then(updateJobSessionUI);
+
 // Enter sends, Shift+Enter adds a newline
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -140,11 +253,456 @@ async function handleReadScreen() {
   } else {
     appendEntry('Gemini', result.error, true);
   }
+  // Refresh status after rendering the answer; this must not delay the live answer.
+  window.overlayAPI.getJobSessionStatus().then(updateJobSessionUI);
   readScreenBtn.disabled = false;
 }
 
 readScreenBtn.addEventListener('click', handleReadScreen);
 window.overlayAPI.onTriggerReadScreen(handleReadScreen);
+
+// --- Isolated live-coding workflow (Ctrl+I) ---
+
+const liveCodingDialog = document.getElementById('live-coding-dialog');
+const liveCodingWorkspace = document.getElementById('live-coding-workspace');
+const liveCodingShortcuts = document.getElementById('live-coding-shortcuts');
+const liveCodingStatus = document.getElementById('live-coding-status');
+const liveCodingInstructions = document.getElementById('live-coding-instructions');
+const liveCodingSource = document.getElementById('live-coding-source');
+const liveCodingCompleteConfirmation = document.getElementById('live-coding-complete-confirmation');
+const liveCodingCaptureBtn = document.getElementById('retry-live-coding-capture-btn');
+const liveCodingGenerateBtn = document.getElementById('generate-live-coding-patch-btn');
+const liveCodingCopyBtn = document.getElementById('copy-live-coding-code-btn');
+const liveCodingReview = document.getElementById('live-coding-review');
+const liveCodingOutput = document.getElementById('live-coding-output');
+const liveCodingOriginalOutput = document.getElementById('live-coding-original-output');
+const liveCodingScreenshotControls = document.getElementById('live-coding-screenshot-controls');
+const startLiveCodingScreenshotsBtn = document.getElementById('start-live-coding-screenshots-btn');
+const captureLiveCodingViewportBtn = document.getElementById('capture-live-coding-viewport-btn');
+const reconstructLiveCodingScreenshotsBtn = document.getElementById('reconstruct-live-coding-screenshots-btn');
+const liveCodingScreenshotCount = document.getElementById('live-coding-screenshot-count');
+const liveCodingRetakeTarget = document.getElementById('live-coding-retake-target');
+const liveCodingRetakeBtn = document.getElementById('retake-live-coding-screenshot-btn');
+const liveCodingEndSessionBtn = document.getElementById('end-live-coding-session-btn');
+let liveCodingResult = null;
+let liveCodingCaptureTruncated = false;
+let liveCodingScreenshotMode = false;
+let liveCodingScreenshotParts = [];
+let liveCodingScreenshotReconstructionReady = false;
+let liveCodingRecaptureRequests = [];
+let liveCodingAnalyzing = false;
+
+async function captureLiveCodingSource() {
+  try { await window.overlayAPI.endLiveCodingSession(); } catch (_) { /* A new capture can proceed if stale temp cleanup fails. */ }
+  liveCodingWorkspace.classList.remove('screenshot-mode');
+  liveCodingShortcuts.hidden = true;
+  liveCodingStatus.textContent = 'Reading the focused window through read-only accessibility…';
+  liveCodingCaptureBtn.disabled = true;
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCopyBtn.hidden = true;
+  liveCodingReview.hidden = true;
+  liveCodingInstructions.value = '';
+  liveCodingSource.value = '';
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingResult = null;
+  liveCodingCaptureTruncated = false;
+  liveCodingScreenshotMode = false;
+  liveCodingScreenshotParts = [];
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingRecaptureRequests = [];
+  startLiveCodingScreenshotsBtn.hidden = false;
+  captureLiveCodingViewportBtn.hidden = true;
+  liveCodingScreenshotCount.textContent = '0 screenshots';
+  liveCodingScreenshotControls.hidden = false;
+  liveCodingEndSessionBtn.hidden = true;
+  liveCodingCompleteConfirmation.closest('label').hidden = false;
+  liveCodingCaptureBtn.hidden = false;
+  liveCodingGenerateBtn.hidden = false;
+  liveCodingRetakeTarget.hidden = true;
+  liveCodingRetakeBtn.hidden = true;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  startLiveCodingScreenshotsBtn.disabled = true;
+
+  let result;
+  try {
+    result = await window.overlayAPI.captureLiveCodingWindow();
+  } catch (error) {
+    liveCodingStatus.textContent = `Capture failed: ${error.message || 'Accessibility reader error.'}`;
+    liveCodingCaptureBtn.disabled = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
+    return;
+  }
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Capture failed: ${result.error}`;
+    liveCodingCaptureBtn.disabled = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
+    return;
+  }
+
+  liveCodingInstructions.value = result.instructions || '';
+  liveCodingSource.value = result.code || '';
+  liveCodingScreenshotReconstructionReady = Boolean(result.instructions?.trim() && result.code?.trim());
+  liveCodingCaptureTruncated = Boolean(result.truncated);
+  const flags = [];
+  if (result.truncated) flags.push('Accessibility text was truncated at the capture limit.');
+  if (!result.instructions) flags.push('No text was found on the left side.');
+  if (!result.code) flags.push('No text was found on the right side.');
+  liveCodingStatus.textContent = `Captured ${result.instructions.length.toLocaleString()} instruction characters and ${result.code.length.toLocaleString()} code characters from ${result.candidateCount} accessible text controls. This editor’s off-screen coverage has not been verified.`;
+  if (flags.length) liveCodingStatus.textContent += `\n${flags.join(' ')}`;
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCaptureBtn.disabled = false;
+  startLiveCodingScreenshotsBtn.disabled = false;
+}
+
+liveCodingCompleteConfirmation.addEventListener('change', () => {
+  liveCodingGenerateBtn.disabled = !liveCodingCompleteConfirmation.checked ||
+    !liveCodingInstructions.value.trim() || !liveCodingSource.value.trim() || liveCodingCaptureTruncated || !liveCodingScreenshotReconstructionReady;
+});
+
+function renderLiveCodingCode(result) {
+  const changed = new Set(result.changedLines || []);
+  const assumed = new Set(result.assumedLines || []);
+  const renderPane = (element, code, edited = false) => {
+    const fragment = document.createDocumentFragment();
+    String(code || '').split('\n').forEach((line, index) => {
+      const row = document.createElement('div');
+      row.className = 'live-code-line';
+      if (edited && assumed.has(index)) row.classList.add('assumed');
+      else if (edited && changed.has(index)) row.classList.add('changed');
+      const number = document.createElement('span');
+      number.className = 'live-code-number';
+      number.textContent = String(index + 1);
+      const content = document.createElement('span');
+      content.className = 'live-code-text';
+      content.textContent = line || ' ';
+      row.append(number, content);
+      fragment.appendChild(row);
+    });
+    element.replaceChildren(fragment);
+    element.scrollTop = 0;
+    element.scrollLeft = 0;
+  };
+  renderPane(liveCodingOriginalOutput, liveCodingSource.value);
+  renderPane(liveCodingOutput, result.code, true);
+}
+
+async function startLiveCoding() {
+  if (liveCodingScreenshotMode) {
+    try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Keep the original bounds if expansion fails. */ }
+    if (!liveCodingDialog.open) liveCodingDialog.showModal();
+    const targetId = liveCodingRecaptureRequests.length ? liveCodingRetakeTarget.value : '';
+    await captureLiveCodingScreenshot(true, targetId);
+    return;
+  }
+  await beginScreenshotFallback();
+}
+
+liveCodingCaptureBtn.addEventListener('click', captureLiveCodingSource);
+document.getElementById('close-live-coding-btn').addEventListener('click', () => liveCodingDialog.close());
+liveCodingDialog.addEventListener('close', () => {
+  window.overlayAPI.setLiveCodingWindowMode('restore').catch(() => {});
+});
+window.overlayAPI.onTriggerLiveCoding(startLiveCoding);
+window.overlayAPI.onTriggerLiveCodingAnalyze(analyzeLiveCodingScreenshots);
+window.overlayAPI.onTriggerLiveCodingEnd(endLiveCodingSession);
+
+async function captureLiveCodingViewport(hideAfterCapture) {
+  return captureLiveCodingScreenshot(hideAfterCapture, '');
+}
+
+async function captureLiveCodingScreenshot(hideAfterCapture, targetScreenshotId) {
+  if (!targetScreenshotId && liveCodingScreenshotParts.length >= 20) {
+    liveCodingStatus.textContent = 'The screenshot limit is 20. Reopen the panel and reconstruct this set.';
+    return;
+  }
+  liveCodingStatus.textContent = `Capturing viewport ${liveCodingScreenshotParts.length + 1}…`;
+  captureLiveCodingViewportBtn.disabled = true;
+  let result;
+  try {
+    result = await window.overlayAPI.captureLiveCodingScreenshot(targetScreenshotId);
+  } catch (error) {
+    liveCodingStatus.textContent = `Screenshot capture failed: ${error.message || 'capture error.'}`;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Screenshot capture failed: ${result.error}`;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  const captured = {
+    screenshotId: result.screenshotId,
+    revision: result.revision,
+    imagePart: result.imagePart,
+    width: result.width,
+    height: result.height,
+  };
+  const replacedIndex = liveCodingScreenshotParts.findIndex((item) => item.screenshotId === result.screenshotId);
+  if (replacedIndex >= 0) liveCodingScreenshotParts.splice(replacedIndex, 1, captured);
+  else liveCodingScreenshotParts.push(captured);
+  if (targetScreenshotId) liveCodingRecaptureRequests = [];
+  liveCodingScreenshotCount.textContent = liveCodingScreenshotParts.map((item) => `${item.screenshotId} r${item.revision}`).join(' · ');
+  liveCodingRetakeTarget.replaceChildren(...liveCodingScreenshotParts.map((item) => {
+    const option = document.createElement('option');
+    option.value = item.screenshotId;
+    option.textContent = `${item.screenshotId} (current r${item.revision})`;
+    return option;
+  }));
+  liveCodingRetakeTarget.hidden = liveCodingScreenshotParts.length === 0;
+  liveCodingRetakeBtn.hidden = liveCodingScreenshotParts.length === 0;
+  liveCodingEndSessionBtn.hidden = false;
+  liveCodingResult = null;
+  liveCodingCopyBtn.hidden = true;
+  liveCodingReview.hidden = true;
+  reconstructLiveCodingScreenshotsBtn.disabled = false;
+  liveCodingStatus.textContent = `Captured ${result.screenshotId} revision ${result.revision} (${result.width}×${result.height}). The full active window, including both panes, was saved temporarily.`;
+  if (hideAfterCapture) {
+    try {
+      await window.overlayAPI.hideLiveCodingOverlay();
+    } catch (error) {
+      liveCodingStatus.textContent += ` The overlay could not hide automatically: ${error.message || 'hide error.'}`;
+    }
+  }
+  captureLiveCodingViewportBtn.disabled = false;
+}
+
+async function beginScreenshotFallback() {
+  try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Keep the original bounds if expansion fails. */ }
+  if (!liveCodingDialog.open) liveCodingDialog.showModal();
+  try { await window.overlayAPI.endLiveCodingSession(); } catch (_) { /* Start a fresh capture session. */ }
+  liveCodingWorkspace.classList.add('screenshot-mode');
+  liveCodingShortcuts.hidden = false;
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotParts = [];
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingInstructions.value = '';
+  liveCodingSource.value = '';
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingResult = null;
+  liveCodingCaptureTruncated = false;
+  startLiveCodingScreenshotsBtn.hidden = true;
+  captureLiveCodingViewportBtn.hidden = false;
+  liveCodingCompleteConfirmation.closest('label').hidden = true;
+  liveCodingCaptureBtn.hidden = true;
+  liveCodingGenerateBtn.hidden = true;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  liveCodingScreenshotCount.textContent = '0 screenshots';
+  liveCodingRecaptureRequests = [];
+  liveCodingRetakeTarget.replaceChildren();
+  liveCodingRetakeTarget.hidden = true;
+  liveCodingRetakeBtn.hidden = true;
+  liveCodingEndSessionBtn.hidden = false;
+  liveCodingStatus.textContent = 'Screenshot fallback started. Capturing the first view now…';
+  await captureLiveCodingViewport(true);
+}
+
+startLiveCodingScreenshotsBtn.addEventListener('click', beginScreenshotFallback);
+captureLiveCodingViewportBtn.addEventListener('click', () => {
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  captureLiveCodingViewport(true);
+});
+
+liveCodingRetakeBtn.addEventListener('click', () => {
+  const targetId = liveCodingRetakeTarget.value;
+  if (!targetId) return;
+  liveCodingScreenshotMode = true;
+  liveCodingScreenshotReconstructionReady = false;
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  captureLiveCodingScreenshot(true, targetId);
+});
+
+async function endLiveCodingSession() {
+  try {
+    await window.overlayAPI.endLiveCodingSession();
+    liveCodingScreenshotParts = [];
+    liveCodingScreenshotMode = false;
+    liveCodingWorkspace.classList.remove('screenshot-mode');
+    liveCodingShortcuts.hidden = true;
+    liveCodingScreenshotReconstructionReady = false;
+    liveCodingRecaptureRequests = [];
+    liveCodingResult = null;
+    liveCodingInstructions.value = '';
+    liveCodingSource.value = '';
+    liveCodingCompleteConfirmation.checked = false;
+    liveCodingReview.hidden = true;
+    liveCodingCopyBtn.hidden = true;
+    liveCodingGenerateBtn.disabled = true;
+    liveCodingScreenshotCount.textContent = '0 screenshots';
+    liveCodingRetakeTarget.replaceChildren();
+    liveCodingRetakeTarget.hidden = true;
+    liveCodingRetakeBtn.hidden = true;
+    liveCodingEndSessionBtn.hidden = true;
+    reconstructLiveCodingScreenshotsBtn.disabled = true;
+    captureLiveCodingViewportBtn.hidden = true;
+    startLiveCodingScreenshotsBtn.hidden = false;
+    startLiveCodingScreenshotsBtn.disabled = false;
+    liveCodingCompleteConfirmation.closest('label').hidden = false;
+    liveCodingCaptureBtn.hidden = false;
+    liveCodingGenerateBtn.hidden = false;
+    if (liveCodingDialog.open) liveCodingDialog.close();
+    await window.overlayAPI.setLiveCodingWindowMode('restore');
+    liveCodingStatus.textContent = 'Live-coding session ended. Temporary screenshots were deleted.';
+  } catch (error) {
+    liveCodingStatus.textContent = `Could not end the session and delete its screenshots: ${error.message || 'cleanup error.'}`;
+  }
+}
+
+liveCodingEndSessionBtn.addEventListener('click', endLiveCodingSession);
+
+async function analyzeLiveCodingScreenshots() {
+  if (liveCodingAnalyzing) return;
+  if (!liveCodingScreenshotParts.length) {
+    liveCodingStatus.textContent = 'No screenshots are available yet. Press Ctrl+I to capture the full active window.';
+    return;
+  }
+  liveCodingAnalyzing = true;
+  try { await window.overlayAPI.setLiveCodingWindowMode('expanded'); } catch (_) { /* Continue at the current overlay size. */ }
+  if (!liveCodingDialog.open) liveCodingDialog.showModal();
+  liveCodingWorkspace.classList.add('screenshot-mode');
+  liveCodingShortcuts.hidden = false;
+  reconstructLiveCodingScreenshotsBtn.disabled = true;
+  captureLiveCodingViewportBtn.disabled = true;
+  liveCodingStatus.textContent = `Gemini is reading both panes and solving from ${liveCodingScreenshotParts.length} active screenshot revision(s)…`;
+  let result;
+  try {
+    result = await window.overlayAPI.reconstructLiveCodingScreenshots(liveCodingScreenshotParts);
+  } catch (error) {
+    liveCodingAnalyzing = false;
+    liveCodingStatus.textContent = `Screenshot reconstruction failed: ${error.message || 'Gemini request error.'}`;
+    reconstructLiveCodingScreenshotsBtn.disabled = false;
+    captureLiveCodingViewportBtn.disabled = false;
+    return;
+  }
+  captureLiveCodingViewportBtn.disabled = false;
+  if (!result.ok) {
+    liveCodingAnalyzing = false;
+    liveCodingStatus.textContent = `Screenshot reconstruction failed: ${result.error}`;
+    reconstructLiveCodingScreenshotsBtn.disabled = false;
+    return;
+  }
+
+  liveCodingInstructions.value = result.instructions || '';
+  liveCodingSource.value = result.sourceCode || '';
+  liveCodingScreenshotReconstructionReady = result.status === 'ready';
+  liveCodingCompleteConfirmation.checked = false;
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingScreenshotMode = true;
+  liveCodingRecaptureRequests = result.recaptureRequests || [];
+  const requestedId = liveCodingRecaptureRequests.flatMap((request) => request.screenshotIds || [])
+    .find((id) => liveCodingScreenshotParts.some((item) => item.screenshotId === id));
+  if (requestedId) liveCodingRetakeTarget.value = requestedId;
+  liveCodingResult = {
+    code: result.solutionCode,
+    changedLines: result.changedLines || [],
+    assumedLines: result.assumedLines || [],
+  };
+  renderLiveCodingCode(liveCodingResult);
+  document.getElementById('live-coding-summary').textContent = `${result.status === 'ready' ? 'Solution ready' : 'Provisional solution'} — ${result.summary || 'Full best-effort code from the current captures'}`;
+  const recaptures = liveCodingRecaptureRequests.map((request) => {
+    const ids = (request.screenshotIds || []).join(', ') || 'unknown screenshot';
+    const resultRange = request.solutionLineRange || request.lineRange;
+    const ranges = [
+      resultRange ? `result lines ${resultRange.start}–${resultRange.end}` : '',
+      request.visibleEditorLineRange ? `visible editor lines ${request.visibleEditorLineRange.start}–${request.visibleEditorLineRange.end}` : '',
+    ].filter(Boolean).join('; ');
+    const location = [ranges, request.anchor ? `near “${request.anchor}”` : ''].filter(Boolean).join(', ') || 'the unclear area';
+    return `Recapture ${ids} · ${request.pane || 'code'} · ${location}: ${request.issue || 'unclear text'}\n${request.recaptureSteps || 'Scroll the requested area into view, then retake the listed screenshot ID.'}`;
+  });
+  const validation = result.validation || {};
+  const validationNote = validation.method === 'python_execution'
+    ? `Validation: Gemini returned Python execution results. ${validation.tests?.map((test) => `${test.result}: input ${test.input}; expected ${test.expected}; actual ${test.actual}`).join('; ') || 'See execution output below.'}\n${(validation.executionOutputs || []).map((item) => `${item.outcome}: ${item.output}`).join('\n')}`
+    : `Validation: ${validation.method === 'static_review' ? 'static reasoning only' : 'not executed'}; hidden test cases are not verified.`;
+  const notes = [
+    ...((result.assumptions || []).map((item) => `Assumption: ${item}`)),
+    ...((validation.limitations || []).map((item) => `Validation limit: ${item}`)),
+    validationNote,
+    ...recaptures,
+  ];
+  document.getElementById('live-coding-notes').textContent = notes.join('\n\n');
+  liveCodingReview.hidden = false;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingStatus.textContent = result.status === 'ready'
+    ? `Complete best-effort solution generated from ${liveCodingScreenshotParts.length} active screenshot(s). ${liveCodingRecaptureRequests.length ? 'Review the targeted recapture requests.' : ''}`
+    : `Provisional full-code solution generated from current screenshots. ${liveCodingRecaptureRequests.length} targeted recapture request(s); select a cited ID to replace it and reanalyze all active screenshots.`;
+  reconstructLiveCodingScreenshotsBtn.disabled = false;
+  liveCodingAnalyzing = false;
+}
+
+reconstructLiveCodingScreenshotsBtn.addEventListener('click', analyzeLiveCodingScreenshots);
+
+liveCodingGenerateBtn.addEventListener('click', async () => {
+  liveCodingGenerateBtn.disabled = true;
+  liveCodingCaptureBtn.disabled = true;
+  liveCodingStatus.textContent = 'Gemini is analyzing the instruction and preparing a minimal patch…';
+  liveCodingReview.hidden = true;
+  liveCodingCopyBtn.hidden = true;
+  let result;
+  try {
+    result = await window.overlayAPI.generateLiveCodingPatch({
+      instructions: liveCodingInstructions.value,
+      code: liveCodingSource.value,
+      screenshots: liveCodingScreenshotParts,
+    });
+  } catch (error) {
+    liveCodingStatus.textContent = `Patch failed safely; the captured source was not changed. ${error.message || 'Gemini request failed.'}`;
+    liveCodingCaptureBtn.disabled = false;
+    liveCodingGenerateBtn.disabled = false;
+    return;
+  }
+  liveCodingCaptureBtn.disabled = false;
+  liveCodingGenerateBtn.disabled = false;
+
+  if (!result.ok) {
+    liveCodingStatus.textContent = `Patch failed safely; the captured source was not changed. ${result.error}`;
+    return;
+  }
+  if (result.needsMoreSource) {
+    const concerns = [...(result.sourceConcerns || []), ...(result.assumptions || [])];
+    liveCodingStatus.textContent = `No patch was applied. Gemini needs more source: ${result.summary}`;
+    document.getElementById('live-coding-summary').textContent = 'Capture more source and retry';
+    document.getElementById('live-coding-notes').textContent = concerns.join('\n');
+    liveCodingReview.hidden = false;
+    return;
+  }
+
+  liveCodingResult = result;
+  renderLiveCodingCode(result);
+  document.getElementById('live-coding-summary').textContent = result.summary;
+  const recaptures = (result.recaptureRequests || []).map((request) => {
+    const ids = (request.screenshotIds || []).join(', ') || 'unknown screenshot';
+    const resultRange = request.solutionLineRange || request.lineRange;
+    const ranges = [
+      resultRange ? `result lines ${resultRange.start}–${resultRange.end}` : '',
+      request.visibleEditorLineRange ? `visible editor lines ${request.visibleEditorLineRange.start}–${request.visibleEditorLineRange.end}` : '',
+    ].filter(Boolean).join('; ');
+    const location = [ranges, request.anchor ? `near “${request.anchor}”` : ''].filter(Boolean).join(', ') || 'the unclear area';
+    return `Recapture ${ids} · ${request.pane || 'code'} · ${location}: ${request.issue || 'unclear text'}\n${request.recaptureSteps || 'Scroll the requested area into view and retake the listed screenshot ID.'}`;
+  });
+  const validation = result.validation || {};
+  const validationNote = validation.method === 'python_execution'
+    ? `Validation: Gemini returned Python execution results. ${validation.tests?.map((test) => `${test.result}: input ${test.input}; expected ${test.expected}; actual ${test.actual}`).join('; ') || 'See execution output below.'}\n${(validation.executionOutputs || []).map((item) => `${item.outcome}: ${item.output}`).join('\n')}`
+    : `Validation: ${validation.method === 'static_review' ? 'static reasoning only' : 'not executed'}; hidden test cases are not verified.`;
+  const notes = [...(result.sourceConcerns || []), ...(result.assumptions || []).map((item) => `Assumption: ${item}`), ...recaptures, validationNote];
+  document.getElementById('live-coding-notes').textContent = notes.join('\n');
+  liveCodingReview.hidden = false;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingCopyBtn.hidden = false;
+  liveCodingStatus.textContent = `${result.status === 'provisional' ? 'Provisional patch' : 'Patch'} applied to the captured text. ${result.changedLines.length} changed line(s), ${result.assumedLines.length} inferred line(s). Validation: ${result.validation?.method === 'python_execution' ? 'Gemini Python execution' : 'not executed'}; hidden tests remain unverified.`;
+});
+
+liveCodingCopyBtn.addEventListener('click', async () => {
+  if (!liveCodingResult) return;
+  try {
+    const result = await window.overlayAPI.copyLiveCodingCode(liveCodingResult.code);
+    liveCodingStatus.textContent = result.ok ? 'Full assembled code copied to clipboard.' : 'Could not copy the assembled code.';
+  } catch (error) {
+    liveCodingStatus.textContent = `Could not copy the assembled code: ${error.message || 'clipboard error.'}`;
+  }
+});
 
 // --- Voice input (push-to-toggle: press to start, press again to stop+send) ---
 // True "hold to talk" isn't reliable with global OS hotkeys (no keyup event
